@@ -67,3 +67,6 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Ignorar el archivo de credenciales de la cuenta de servicio
+functions/service-account-key.json

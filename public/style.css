@@ -1,0 +1,291 @@
+/* public/style.css */
+
+/* --- Variables de Color Corporativas y Fuentes --- */
+:root {
+  --color-anthracite: #37424a;
+  --color-orange: #e37222;
+  --color-white: #ffffff;
+  --color-background: #f4f6f8; /* Un gris muy claro para el fondo general */
+  --color-text: #333333;
+  --color-border: #dee2e6;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Estilos Generales y Reseteo --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding-top: 70px; /* Dejamos espacio para el header fijo */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text);
+}
+
+/* --- Banner de Desarrollo --- */
+.dev-banner {
+  background-color: #d32f2f;
+  color: white;
+  text-align: center;
+  padding: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  position: fixed;
+  width: 100%;
+  top: 70px;
+  left: 0;
+  z-index: 1000;
+}
+
+/* --- Encabezado Principal --- */
+.main-header {
+  background-color: var(--color-white);
+  height: 70px;
+  width: 100%;
+  padding: 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 40px;
+  border-bottom: 1px solid var(--color-border);
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1001;
+}
+
+#main-nav {
+  display: flex;
+  gap: 10px;
+}
+
+#main-nav a {
+  text-decoration: none;
+  color: var(--color-anthracite);
+  font-weight: bold;
+  padding: 8px 16px;
+  border-radius: 5px;
+  transition: all 0.2s ease-in-out;
+}
+
+#main-nav a:hover {
+  background-color: var(--color-background);
+}
+
+#main-nav a.active {
+  background-color: var(--color-orange);
+  color: var(--color-white);
+}
+
+.logo-container img {
+  height: 70px;
+  display: block;
+}
+
+#auth-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px; /* Espacio entre elementos */
+  margin-left: auto;
+}
+
+#auth-controls .user-info {
+  text-align: right;
+  font-size: 14px;
+}
+#auth-controls .user-info strong {
+  display: block;
+  color: var(--color-anthracite);
+}
+#auth-controls .user-info span {
+  font-size: 12px;
+  color: #6c757d;
+}
+
+/* --- Contenido Principal --- */
+main#app {
+  max-width: 1200px;
+  margin: 30px auto;
+  padding: 30px;
+}
+
+h2 {
+  color: var(--color-anthracite);
+  padding-bottom: 10px;
+  margin-top: 0;
+}
+
+/* --- Botones --- */
+button {
+  cursor: pointer;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  font-weight: bold;
+  font-size: 14px;
+  color: var(--color-white);
+  background-color: var(--color-orange);
+  transition: all 0.2s ease-in-out;
+}
+
+button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+#logout-btn {
+  background-color: var(--color-anthracite);
+}
+#logout-btn:hover {
+  background-color: #000;
+}
+
+/* --- Estilos de la Tabla (sin cambios en la lógica, solo en colores) --- */
+#pedidos-container {
+  overflow-x: auto;
+  background-color: var(--color-white);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 15px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+thead th {
+  background-color: var(--color-anthracite);
+  color: var(--color-white);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+tbody tr:hover {
+  background-color: #fcebe0; /* Un naranja muy pálido al pasar el ratón */
+}
+
+/* --- Estilos para el Formulario de Nuevo Pedido --- */
+.form-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* Dos columnas de igual tamaño */
+  gap: 30px;
+}
+
+.form-section,
+.cart-section {
+  background-color: var(--color-white);
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(250px, 1fr)
+  ); /* Columnas automáticas */
+  gap: 20px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-field label {
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 5px;
+  color: var(--color-anthracite);
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  font-size: 16px;
+}
+
+.form-field input:focus {
+  outline: none;
+  border-color: var(--color-orange);
+  box-shadow: 0 0 0 2px #e3722240;
+}
+
+/* --- Media Query para Móvil (sin cambios) --- */
+@media screen and (max-width: 760px) {
+  body {
+    padding-top: 60px;
+  }
+  .main-header {
+    height: 60px;
+    padding: 0 15px;
+  }
+  .logo-container img {
+    height: 45px;
+  }
+  #auth-controls .user-info {
+    display: none;
+  } /* Ocultamos el texto en móvil para ahorrar espacio */
+  main#app {
+    padding: 15px;
+    margin-top: 15px;
+  }
+  #pedidos-container {
+    padding: 10px;
+  }
+
+  table thead {
+    border: none;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    width: 1px;
+  }
+  table tr {
+    display: block;
+    margin-bottom: 20px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+  table td {
+    display: block;
+    text-align: right;
+    border-bottom: 1px dotted var(--color-border);
+  }
+  table td:last-child {
+    border-bottom: 0;
+  }
+  table td::before {
+    content: attr(data-label);
+    float: left;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+
+  .form-container {
+    grid-template-columns: 1fr; /* Una sola columna */
+  }
+}
