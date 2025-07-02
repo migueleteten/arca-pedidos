@@ -184,7 +184,7 @@ exports.getProductosPorMarca = onCall({
         udBulto: udsPorBulto,
         // dato_complementario: row[4] || "", // Descomentar si se necesitan
         precio: parseFloat(String(row[5] || "0").replace(",", ".")) || 0,
-        // unidad_venta: row[6] || "", // Descomentar si se necesitan
+        unidadVenta: row[6] || "", // Descomentar si se necesitan
       };
     }).filter((p) => p.codigo); // Filtramos filas que no tengan código
 

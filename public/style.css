@@ -181,7 +181,7 @@ tbody tr:hover {
 /* --- Estilos para el Formulario de Nuevo Pedido --- */
 .form-container {
   display: grid;
-  grid-template-columns: 1fr 1fr; /* Dos columnas de igual tamaño */
+  grid-template-columns: 1fr; /* Dos columnas de igual tamaño */
   gap: 30px;
 }
 
@@ -288,4 +288,34 @@ tbody tr:hover {
   .form-container {
     grid-template-columns: 1fr; /* Una sola columna */
   }
+}
+
+/* Estilos para botones con iconos */
+.icon-button {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-button:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+  transform: none; /* Quitamos el efecto de levantar */
+  box-shadow: none; /* Quitamos la sombra */
+}
+.icon-button .material-symbols-outlined {
+  color: var(--color-anthracite);
+}
+
+.comment-cell {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.comment-cell:hover {
+  background-color: #e9ecef; /* Un gris claro para resaltar al pasar el ratón */
 }
