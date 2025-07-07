@@ -230,64 +230,35 @@ tbody tr:hover {
   box-shadow: 0 0 0 2px #e3722240;
 }
 
-/* --- Media Query para Móvil (sin cambios) --- */
-@media screen and (max-width: 760px) {
-  body {
-    padding-top: 60px;
-  }
-  .main-header {
-    height: 60px;
-    padding: 0 15px;
-  }
-  .logo-container img {
-    height: 45px;
-  }
-  #auth-controls .user-info {
-    display: none;
-  } /* Ocultamos el texto en móvil para ahorrar espacio */
-  main#app {
-    padding: 15px;
-    margin-top: 15px;
-  }
-  #pedidos-container {
-    padding: 10px;
-  }
+/* --- Estilos para Controles de Iconos --- */
+.vista-opciones-grid {
+  /* Mantenemos flex para alinear los nuevos iconos */
+  gap: 8px;
+}
 
-  table thead {
-    border: none;
-    clip: rect(0 0 0 0);
-    height: 1px;
-    margin: -1px;
-    overflow: hidden;
-    padding: 0;
-    position: absolute;
-    width: 1px;
-  }
-  table tr {
-    display: block;
-    margin-bottom: 20px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    box-shadow: var(--shadow);
-  }
-  table td {
-    display: block;
-    text-align: right;
-    border-bottom: 1px dotted var(--color-border);
-  }
-  table td:last-child {
-    border-bottom: 0;
-  }
-  table td::before {
-    content: attr(data-label);
-    float: left;
-    font-weight: bold;
-    text-transform: uppercase;
-  }
+.vista-opciones-grid .icon-button {
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  color: var(--color-anthracite);
+  width: 40px;
+  height: 40px;
+}
 
-  .form-container {
-    grid-template-columns: 1fr; /* Una sola columna */
-  }
+.vista-opciones-grid .icon-button .material-symbols-outlined {
+  color: var(--color-anthracite);
+}
+
+.vista-opciones-grid .icon-button.active {
+  background-color: var(--color-orange);
+  border-color: var(--color-orange);
+}
+
+.vista-opciones-grid .icon-button.active .material-symbols-outlined {
+  color: var(--color-white);
+}
+
+#search-input {
+  transition: all 0.3s ease-in-out;
 }
 
 /* Estilos para botones con iconos */
@@ -318,4 +289,421 @@ tbody tr:hover {
 
 .comment-cell:hover {
   background-color: #e9ecef; /* Un gris claro para resaltar al pasar el ratón */
+}
+
+/* --- Estilos para Estados de Pedido --- */
+.status-badge {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  color: white;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-pedido {
+  background-color: #ff9800;
+} /* Naranja */
+.status-recibido {
+  background-color: #0d47a1;
+} /* Azul */
+.status-enviado {
+  background-color: #4caf50;
+} /* Verde */
+.status-destino {
+  background-color: #607d8b;
+} /* Gris */
+
+.vista-header {
+  margin-bottom: 20px;
+}
+
+.vista-opciones-grid {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap; /* Para que se adapte en móvil */
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+}
+
+.select-all-mobile {
+  display: none; /* Oculto en desktop por defecto */
+}
+
+#search-input {
+  flex-grow: 1; /* Hace que el cuadro de búsqueda ocupe el espacio disponible */
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  font-size: 16px;
+}
+
+#search-input:focus {
+  outline: none;
+  border-color: var(--color-orange);
+  box-shadow: 0 0 0 2px #e3722240;
+}
+
+.filtros-switch label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none; /* Evita que el texto se seleccione al hacer clic */
+}
+
+/* --- Estilos para Filtros Rápidos por Estado --- */
+.state-filters {
+  display: flex;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+  margin: 10px;
+}
+
+.state-filters button {
+  background-color: #e9ecef;
+  color: #495057;
+  border: 1px solid #ced4da;
+  font-size: 12px;
+  padding: 5px 12px;
+}
+
+.state-filters button:hover {
+  background-color: #dee2e6;
+  transform: none;
+  box-shadow: none;
+}
+
+.state-filters button.active {
+  background-color: var(--color-anthracite);
+  color: var(--color-white);
+  border-color: var(--color-anthracite);
+}
+
+/* --- Estilos para Selección Múltiple y Acciones en Lote --- */
+
+/* Estilo para la fila seleccionada */
+#pedidos-tbody tr.selected {
+  background-color: #fff3e0; /* Naranja muy claro */
+  border-left: 4px solid var(--color-orange);
+}
+
+/* Barra de acciones en lote */
+#bulk-action-bar {
+  position: fixed;
+  bottom: -100px; /* Empieza oculta */
+  left: 0;
+  width: 100%;
+  background-color: var(--color-anthracite);
+  padding: 15px 30px;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  transition: bottom 0.3s ease-in-out;
+}
+#bulk-action-bar.visible {
+  bottom: 0; /* Se hace visible */
+}
+#bulk-action-bar p {
+  margin: 0;
+  color: var(--color-white);
+  font-weight: bold;
+}
+#bulk-action-bar button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* --- Estilos para Vista Salida Rápida --- */
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 15px;
+  padding-top: 20px;
+}
+
+.product-card {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-white);
+  text-align: center;
+  padding: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  box-shadow: var(--shadow-sm);
+}
+
+.product-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow);
+  border-color: var(--color-orange);
+}
+
+.product-card img {
+  width: 100%;
+  height: 100px;
+  object-fit: contain; /* Para que la imagen no se deforme */
+  margin-bottom: 10px;
+}
+
+.product-card .product-info h4 {
+  font-size: 14px;
+  margin: 5px 0;
+  color: var(--color-anthracite);
+}
+
+.product-card .product-info p {
+  font-size: 12px;
+  color: #6c757d;
+  margin: 0;
+}
+
+#vista-opciones input[type="text"],
+#vista-opciones input[type="search"] {
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  font-size: 16px;
+  flex-grow: 1;
+}
+
+/* --- Estilos para el Modal de Cantidad --- */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.modal-content h3 {
+  margin-top: 0;
+}
+
+.modal-content .input-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.modal-content input[type="number"] {
+  flex-grow: 1;
+  padding: 12px;
+  font-size: 18px;
+  text-align: center;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+}
+
+.modal-content .unit-label {
+  font-size: 18px;
+  font-weight: bold;
+  color: #6c757d;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 15px;
+}
+
+.modal-buttons button {
+  flex-grow: 1;
+  padding: 12px;
+  font-size: 16px;
+}
+.modal-buttons .btn-secondary {
+  background-color: #6c757d;
+}
+
+/* --- MAGIA RESPONSIVE: VISTA MÓVIL DE ALTA DENSIDAD --- */
+@media screen and (max-width: 760px) {
+  body {
+    padding-top: 60px;
+  }
+  .main-header {
+    height: 60px;
+    padding: 0 15px;
+  }
+  .logo-container img {
+    height: 35px;
+  }
+  #auth-controls .user-info {
+    display: none;
+  }
+  main#app {
+    padding: 10px;
+    margin-top: 10px;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+  /* --- Controles superiores horizontales --- */
+  .vista-opciones-grid {
+    display: flex; /* Usamos flexbox */
+    flex-direction: row; /* Ponemos los elementos en fila */
+    align-items: center;
+    gap: 15px; /* Espacio entre búsqueda y switch */
+  }
+  #search-input {
+    flex-grow: 1; /* El buscador ocupa el espacio sobrante */
+  }
+  .filtros-switch {
+    flex-shrink: 0; /* Evita que el switch se encoja */
+  }
+
+  /* --- Contenedor y Tabla --- */
+  #pedidos-container {
+    padding: 0;
+    box-shadow: none;
+    background-color: transparent;
+  }
+
+  #vista-opciones .select-all-mobile {
+    display: inline-block;
+    width: 100%;
+    text-align: center;
+    background-color: var(--color-background);
+    color: var(--color-anthracite);
+    border: 1px solid var(--color-border);
+  }
+
+  table thead {
+    display: none;
+  }
+  table,
+  tbody,
+  tr,
+  td {
+    display: block;
+  }
+
+  /* --- La nueva tarjeta de pedido con GRID --- */
+  table tr {
+    cursor: pointer;
+    margin-bottom: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background-color: var(--color-white);
+    padding: 12px;
+
+    /* Definimos la parrilla de la tarjeta */
+    display: grid;
+    grid-template-columns: 1fr auto; /* Columna principal flexible, columna secundaria autoajustable */
+    grid-template-rows: auto;
+    gap: 2px 10px; /* Espacio entre filas y columnas */
+    grid-template-areas:
+      "producto estado"
+      "expediente cantidad"
+      "proveedor acciones"
+      "fecha acciones";
+  }
+
+  /* Ocultamos los labels de texto */
+  table td::before {
+    display: none;
+  }
+
+  /* Reseteamos el estilo de las celdas */
+  table td {
+    padding: 0;
+    border: none;
+    display: block; /* Por defecto */
+  }
+
+  /* Asignamos cada dato a su área en la parrilla */
+  td[data-label="Producto"] {
+    grid-area: producto;
+  }
+  td[data-label="Expediente / Dirección"] {
+    grid-area: expediente;
+  }
+  td[data-label="Proveedor"] {
+    grid-area: proveedor;
+    font-size: 13px;
+    color: #6c757d;
+  }
+  td[data-label="Fecha"] {
+    grid-area: fecha;
+    font-size: 12px;
+    color: #6c757d;
+  }
+  td[data-label="Estado"] {
+    grid-area: estado;
+    text-align: right;
+  }
+  td[data-label="Cantidad"] {
+    grid-area: cantidad;
+    text-align: right;
+    font-weight: bold;
+  }
+  td[data-label="Acciones"] {
+    grid-area: acciones;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  th:first-child,
+  td[data-label="Select"] {
+    display: none;
+  }
+
+  /* Ocultamos el usuario en móvil para ganar espacio, ya está en los filtros */
+  td[data-label="Usuario"] {
+    display: none;
+  }
+
+  /* Ajustamos el contenido de las celdas principales */
+  td[data-label="Producto"],
+  td[data-label="Expediente / Dirección"] {
+    display: flex;
+    flex-direction: column;
+  }
+  td[data-label="Producto"] strong,
+  td[data-label="Expediente / Dirección"] strong {
+    font-size: 15px;
+  }
+  td[data-label="Producto"] small,
+  td[data-label="Expediente / Dirección"] small {
+    font-size: 12px;
+    color: #6c757d;
+  }
+  #search-input.mobile-hidden {
+    display: none;
+    width: 0;
+    padding: 0;
+    border: none;
+  }
+  #search-input.mobile-visible {
+    display: block;
+    width: 100%; /* Ocupa todo el ancho al aparecer */
+  }
 }

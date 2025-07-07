@@ -24,12 +24,21 @@
       <nav id="main-nav">
         <a href="#" id="nav-pedidos">Mis Pedidos</a>
         <a href="#" id="nav-nuevo">Nuevo Pedido</a>
+        <a
+          href="#"
+          id="nav-salida-rapida"
+          class="admin-only"
+          style="display: none"
+          >Salida Rápida</a
+        >
       </nav>
 
       <nav id="auth-controls"></nav>
     </header>
 
     <main id="app"></main>
+
+    <div id="bulk-action-bar"></div>
 
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
