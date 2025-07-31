@@ -272,6 +272,108 @@ exports.finalizarPedido = onCall({
     // Ejecutamos todas las operaciones de guardado a la vez
     await batch.commit();
     console.log(`Pedido de ${usuarioEmail} guardado con éxito.`);
+
+    // 2. NUEVA LÓGICA DE AGRUPACIÓN MÁS INTELIGENTE
+    const pedidosAgrupados = new Map();
+    lineasPedido.forEach((linea) => {
+      // Determinamos la dirección de entrega para ESTA línea específica
+      let direccionEntrega = "";
+      if (linea.proveedor === "ACE DISTRIBUCIÓN") {
+        direccionEntrega = linea.direccion;
+      } else {
+        direccionEntrega = linea.necesitaAlmacen ?
+                "Calle Galena 13, 47012 Valladolid" :
+                linea.direccion;
+      }
+
+      // Creamos una clave única para la agrupación
+      const groupKey = `${linea.proveedor.trim()}|${direccionEntrega}`;
+
+      if (!pedidosAgrupados.has(groupKey)) {
+        pedidosAgrupados.set(groupKey, {
+          nombreProveedor: linea.proveedor.trim(),
+          direccionEntrega: direccionEntrega,
+          lineas: [],
+        });
+      }
+      pedidosAgrupados.get(groupKey).lineas.push(linea);
+    });
+
+    // 3. Por cada GRUPO (Proveedor+Dirección), buscar email y enviar correo
+    for (const [key, grupo] of pedidosAgrupados.entries()) {
+      try {
+        const proveedorQuery = await db.collection("proveedores")
+            .where("tipo", "==", "Material")
+            .where("nombreFiscal", "==", grupo.nombreProveedor).limit(1).get();
+
+        if (proveedorQuery.empty) {
+          console.warn(`
+            No se encontró el proveedor '${grupo.nombreProveedor}'
+            para enviarle el email.`);
+          continue; // Saltamos al siguiente proveedor
+        }
+
+        const proveedorData = proveedorQuery.docs[0].data();
+        const destinatarios = proveedorData.emails;
+
+        if (!destinatarios || destinatarios.length === 0) {
+          console.warn(`El proveedor '${grupo.nombreProveedor}'
+            no tiene emails configurados.`);
+          continue;
+        }
+
+        // Creamos el documento para enviar el email a este proveedor específico
+        await db.collection("correos").add({
+          to: destinatarios,
+          replyTo: usuarioEmail,
+          bcc: [usuarioEmail],
+          message: {
+            subject: `Pedido - Expediente: ${grupo.lineas[0].expediente}`,
+            html: `
+              <h1>Nuevo Pedido Recibido</h1>
+              <p>Pedido realizado por: <strong>${usuarioEmail}</strong>.</p>
+              <p><strong>Expediente:
+                </strong> ${grupo.lineas[0].expediente}</p>
+              <p><strong>Fecha de entrega requerida:</strong>
+                ${new Date(grupo.lineas[0].fechaEntrega)
+      .toLocaleDateString("es-ES")}</p>
+              <p style="background-color: #ffc;
+              padding: 10px; border: 1px solid #e0e0e0;">
+                  <strong>DIRECCIÓN DE ENTREGA:</strong><br>
+                  <strong>${grupo.direccionEntrega}</strong>      
+              <h3>Detalles del pedido:</h3>
+              <table border="1" cellpadding="5" cellspacing="0"
+                style="border-collapse: collapse; width: 100%;">
+                  <thead>
+                      <tr style="background-color: #f2f2f2;">
+                          <th>Código</th>
+                          <th>Descripción</th>
+                          <th>Cantidad</th>
+                          <th>Observaciones</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      ${grupo.lineas.map((linea) => `
+                          <tr>
+                              <td>${linea.codigo}</td>
+                              <td>${linea.descripcion}</td>
+                              <td>${linea.cantidad} ${linea.unidadVenta}</td>
+                              <td>${linea.observaciones || ""}</td>
+                          </tr>
+                      `).join("")}
+                  </tbody>
+              </table>
+          `,
+          },
+        });
+        console.log(`Email para el proveedor '${grupo.nombreProveedor}'
+          añadido a la cola de envío.`);
+      } catch (emailError) {
+        console.error(`Error al procesar el email para el grupo
+          ${key}:`, emailError);
+      }
+    }
+
     return {success: true, message: "Pedido guardado correctamente."};
   } catch (error) {
     console.error("Error al guardar el pedido en Firestore:", error);
@@ -477,6 +579,7 @@ exports.registrarSalidaRapida = onCall({
       cantidad: linea.cantidad,
       precioUnitario: linea.precioVenta,
       importe: linea.cantidad * linea.precioVenta,
+      unidadVenta: linea.unidadVenta || "ud",
       // Usamos la fecha actual como fecha de pedido/salida
       fechaCreacion: new Date(),
       fechaEntrega: new Date(),

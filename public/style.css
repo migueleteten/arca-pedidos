@@ -300,6 +300,8 @@ tbody tr:hover {
   color: white;
   text-transform: uppercase;
   white-space: nowrap;
+  word-break: break-word;
+  hyphens: auto;
 }
 
 .status-pedido {

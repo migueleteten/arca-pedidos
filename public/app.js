@@ -167,7 +167,7 @@ const mostrarVistaPedidos = async () => {
                     <td data-label="Expediente / Dirección"><strong>${pedido.expediente}</strong><br><small>${pedido.direccion}</small></td>
                     <td data-label="Producto"><strong>${pedido.codigo}</strong><br><small>${pedido.descripcion}</small></td>
                     <td data-label="Proveedor">${pedido.proveedor}</td>
-                    <td data-label="Cantidad">${pedido.cantidad} ${pedido.unidadVenta}</td>
+                    <td data-label="Cantidad">${parseFloat(pedido.cantidad).toFixed(2)} ${pedido.unidadVenta}</td>
                     <td data-label="Usuario">${pedido.usuarioEmail.split('@')[0]}</td>
                     <td data-label="Estado"><span class="status-badge ${statusClass}">${pedido.estado}</span></td>
                     <td data-label="Acciones">${accionesHtml || '-'}</td>
@@ -563,7 +563,7 @@ const mostrarVistaNuevoPedido = () => {
             precio: parseFloat(form.precio.value) || 0,
             unidadVenta: form.unidadCompra.value,
             observaciones: form.observaciones.value,
-            necesitaAlmacen: proveedorSeleccionado === 'ACE DISTRIBUCIÓN' ? true : form.necesitaAlmacen.checked
+            necesitaAlmacen: proveedorSeleccionado === 'ACE DISTRIBUCION' ? true : form.necesitaAlmacen.checked
         };
 
         if (!linea.expediente || !linea.proveedor || !linea.codigo || !linea.cantidad || !linea.fechaEntrega) {

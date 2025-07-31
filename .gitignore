@@ -70,3 +70,5 @@ node_modules/
 
 # Ignorar el archivo de credenciales de la cuenta de servicio
 functions/service-account-key.json
+
+functions/twilio.json
