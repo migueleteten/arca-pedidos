@@ -69,8 +69,14 @@ const mostrarVistaPedidos = async () => {
         <div id="state-filters-container" class="state-filters"></div>
         <div id="pedidos-container"><table><thead><tr>
             <th id="th-select-all" style="width: 1%;"></th>
-            <th data-sort="fechaCreacion">Fecha</th><th data-sort="expediente">Expediente / Dirección</th><th data-sort="codigo">Producto</th>
-            <th data-sort="proveedor">Proveedor</th><th data-sort="cantidad">Cant.</th><th data-sort="usuarioEmail">Usuario</th>
+            <th data-sort="fechaEntrega">Fecha de Entrega</th>
+            <th data-sort="expediente">Expediente / Dirección</th>
+            <th data-sort="referenciaEspecifica">Referencia Específica</th>
+            <th data-sort="codigo">Producto</th>
+            <th data-sort="proveedor">Proveedor</th>
+            <th data-sort="cantidad">Cant.</th>
+            <th data-sort="usuarioEmail">Usuario</th>
+            <th data-sort="observaciones">Obs.</th>
             <th data-sort="estado">Estado</th><th>Acciones</th>
         </tr></thead><tbody id="pedidos-tbody"></tbody></table></div>`;
     appContainer.innerHTML = content;
@@ -80,6 +86,7 @@ const mostrarVistaPedidos = async () => {
     try {
         const adminConfig = await db.collection('config').doc('usuariosAdmin').get();
         const adminEmails = adminConfig.exists ? adminConfig.data().emails : [];
+        console.log("PERMISOS DETECTADOS - Lista de Admins:", adminEmails);
         const currentUser = auth.currentUser;
         if (!currentUser) return;
         const esAdmin = adminEmails.includes(currentUser.email);
@@ -115,7 +122,21 @@ const mostrarVistaPedidos = async () => {
         const getPedidosFiltrados = () => {
             return todosLosPedidos
                 .filter(p => esAdmin ? (mostrarPedidosDirectos || p.pedido.necesitaAlmacen) : (soloMisPedidos ? p.pedido.usuarioEmail === currentUser.email : true))
-                .filter(p => filtroBusqueda ? Object.values(p.pedido).some(val => String(val).toLowerCase().includes(filtroBusqueda.toLowerCase())) : true)
+                // --- BLOQUE DE BÚSQUEDA MODIFICADO ---
+                .filter(p => {
+                    if (!filtroBusqueda) return true; // Si no hay búsqueda, no filtrar
+                    const busquedaLower = filtroBusqueda.toLowerCase();
+
+                    // NUEVO: Comprobar primero si el ID coincide
+                    if (p.id.toLowerCase().includes(busquedaLower)) {
+                        return true;
+                    }
+
+                    // Si no coincide el ID, buscar en el resto de campos como antes
+                    return Object.values(p.pedido).some(val => 
+                        String(val).toLowerCase().includes(busquedaLower)
+                    );
+                })
                 .filter(p => filtrosDeEstadoActivos.length > 0 ? filtrosDeEstadoActivos.includes(p.pedido.estado) : true);
         };
 
@@ -150,8 +171,24 @@ const mostrarVistaPedidos = async () => {
             const filasHtml = pedidosParaMostrar.map(data => {
                 const { pedido, id } = data;
                 const isSelected = lineasSeleccionadas.has(id);
-                const fecha = pedido.fechaCreacion.toDate().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                let fechaEntregaFormateada = '-';
+                // Comprobamos que el dato existe y es un string
+                if (pedido.fechaEntrega && typeof pedido.fechaEntrega === 'string') {
+                    const partes = pedido.fechaEntrega.split('-'); // Divide "YYYY-MM-DD" en ["YYYY", "MM", "DD"]
+                    if (partes.length === 3) {
+                        // Recomponemos como "DD-MM-YY"
+                        fechaEntregaFormateada = `${partes[2]}-${partes[1]}-${partes[0].slice(-2)}`;
+                    }
+                }
+                const fecha = fechaEntregaFormateada;
                 let accionesHtml = '';
+                const obsIcon = pedido.observaciones
+                    ? `<span class="material-symbols-outlined" title="${pedido.observaciones}">comment</span>`
+                    : ''; // Si no hay, no muestra nada
+
+                // Añadimos la clase 'tiene-observacion' al <tr> si es necesario
+                const obsClass = pedido.observaciones ? 'tiene-observacion' : '';
+
                 if (esAdmin && pedido.necesitaAlmacen) {
                     if (pedido.estado === 'Pedido') accionesHtml = `<button class="icon-button" data-id="${id}" data-action="recibir" title="Recibir"><span class="material-symbols-outlined">warehouse</span></button>`;
                     else if (pedido.estado === 'Recibido en Almacén') accionesHtml = `<button class="icon-button" data-id="${id}" data-action="enviar" title="Enviar"><span class="material-symbols-outlined">local_shipping</span></button>`;
@@ -161,16 +198,23 @@ const mostrarVistaPedidos = async () => {
                     else if (pedido.estado === 'Pedido' && !pedido.necesitaAlmacen) accionesHtml += `<button class="icon-button" data-id="${id}" data-action="entregado_directo" title="Recibido"><span class="material-symbols-outlined">task_alt</span></button>`;
                 }
                 const statusClass = `status-${pedido.estado.split(' ')[0].toLowerCase()}`;
-                return `<tr class="${isSelected ? 'selected' : ''}" data-id="${id}">
+                return `<tr class="${isSelected ? 'selected' : ''} ${obsClass ? 'tiene-observacion' : ''}" data-id="${id}">
                     ${esAdmin ? `<td data-label="Select"><input type="checkbox" class="linea-checkbox" data-id="${id}" ${isSelected ? 'checked' : ''}></td>` : '<td style="display:none;" data-label="Select"></td>'}
-                    <td data-label="Fecha">${fecha}</td>
+                    <td data-label="Fecha"><small>${fecha}</small></td>
                     <td data-label="Expediente / Dirección"><strong>${pedido.expediente}</strong><br><small>${pedido.direccion}</small></td>
+                    <td data-label="Referencia Específica">${pedido.referenciaEspecifica || '-'}</td>
                     <td data-label="Producto"><strong>${pedido.codigo}</strong><br><small>${pedido.descripcion}</small></td>
-                    <td data-label="Proveedor">${pedido.proveedor}</td>
+                    <td data-label="Proveedor"><small>${pedido.proveedor}</small></td>
                     <td data-label="Cantidad">${parseFloat(pedido.cantidad).toFixed(2)} ${pedido.unidadVenta}</td>
                     <td data-label="Usuario">${pedido.usuarioEmail.split('@')[0]}</td>
+                    <td data-label="Obs." class="comment-cell">${obsIcon}</td>
                     <td data-label="Estado"><span class="status-badge ${statusClass}">${pedido.estado}</span></td>
-                    <td data-label="Acciones">${accionesHtml || '-'}</td>
+                    <td data-label="Acciones / ID">
+                        <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                            <div>${accionesHtml || ''}</div>
+                            <small style="color: #ccc; font-size: 10px;" title="ID de la línea">${id}</small>
+                        </div>
+                    </td>
                 </tr>`;
             }).join('');
             pedidosTbody.innerHTML = filasHtml;
@@ -224,6 +268,7 @@ const mostrarVistaPedidos = async () => {
         pedidosTbody.addEventListener('click', async (e) => {
             const button = e.target.closest('button.icon-button');
             const tr = e.target.closest('tr');
+            const commentCell = e.target.closest('.comment-cell');
 
             // Si se hace clic en un botón de acción individual
             if (button) {
@@ -270,6 +315,19 @@ const mostrarVistaPedidos = async () => {
                 tr.classList.toggle('selected');
                 actualizarBarraAcciones();
             }
+
+            if (commentCell) {
+                const tr = commentCell.closest('tr');
+                const pedidoId = tr.dataset.id;
+                const indice = todosLosPedidos.findIndex(p => p.id === pedidoId);
+                if (indice === -1) return;
+
+                const comentario = todosLosPedidos[indice].pedido.observaciones;
+                if (comentario) {
+                    alert(`Observaciones:\n\n${comentario}`); // Solo muestra el comentario, no pide editar
+                }
+                return; // Detenemos la ejecución para no seleccionar la fila
+            }            
         });
         
         // Listener para la barra de acciones en lote
@@ -378,6 +436,7 @@ const mostrarVistaNuevoPedido = () => {
     let productosDeMarcaActual = [];
     let modoCantidadManual = false; // <-- NUEVO ESTADO para controlar el modo
     let proveedoresCargados = []; // <-- NUEVO: Caché para todos los proveedores
+    let datosPrecioActual = {}; // NUEVO: para guardar los precios extra
 
     // --- Estructura HTML ---
     const content = `
@@ -391,6 +450,10 @@ const mostrarVistaNuevoPedido = () => {
                     <div class="form-field"><label for="marca">Marca</label><input type="text" id="marca" list="marcas-list"><datalist id="marcas-list"></datalist></div>
                     <div class="form-field"><label for="codigo-producto">Código de producto</label><input type="text" id="codigo-producto" list="productos-list"><datalist id="productos-list"></datalist></div>
                     <div class="form-field"><label for="descripcion-producto">Descripción</label><input type="text" id="descripcion-producto"></div>
+                    <div class="form-field">
+                        <label for="referencia-especifica">Referencia Específica (ej: BAÑO)</label>
+                        <input type="text" id="referencia-especifica" placeholder="Opcional...">
+                    </div>
                     <div class="form-field"><label for="fecha-entrega">Fecha de entrega requerida</label><input type="date" id="fecha-entrega"></div>
                     <div class="form-field"><label for="unidad-compra">Unidad de Compra</label><select id="unidad-compra"></select></div>
                     
@@ -432,6 +495,7 @@ const mostrarVistaNuevoPedido = () => {
         marca: document.getElementById('marca'),
         codigo: document.getElementById('codigo-producto'),
         descripcion: document.getElementById('descripcion-producto'),
+        referenciaEspecifica: document.getElementById('referencia-especifica'),
         fechaEntrega: document.getElementById('fecha-entrega'),
         unidadCompra: document.getElementById('unidad-compra'),
         bultosContainer: document.getElementById('bultos-field-container'),
@@ -535,6 +599,7 @@ const mostrarVistaNuevoPedido = () => {
         form.marca.value = '';
         form.codigo.value = '';
         form.descripcion.value = '';
+        form.referenciaEspecifica.value = '';
         form.precio.value = '';
         form.bultos.value = 1;
         form.cantidad.value = '';
@@ -563,7 +628,10 @@ const mostrarVistaNuevoPedido = () => {
             precio: parseFloat(form.precio.value) || 0,
             unidadVenta: form.unidadCompra.value,
             observaciones: form.observaciones.value,
-            necesitaAlmacen: proveedorSeleccionado === 'ACE DISTRIBUCION' ? true : form.necesitaAlmacen.checked
+            necesitaAlmacen: proveedorSeleccionado === 'ACE DISTRIBUCION' ? true : form.necesitaAlmacen.checked,
+            referenciaEspecifica: form.referenciaEspecifica.value, // Añadimos la nueva referencia
+            precioPVP: datosPrecioActual.pvp || 0, // Añadimos el PVP
+            dtoPresupuesto: datosPrecioActual.dto || 0 // Añadimos el descuento            
         };
 
         if (!linea.expediente || !linea.proveedor || !linea.codigo || !linea.cantidad || !linea.fechaEntrega) {
@@ -705,6 +773,10 @@ const mostrarVistaNuevoPedido = () => {
             priceInfoPanel.style.display = 'block';
             bultosInput.dispatchEvent(new Event('input')); // Recalcular cantidad al elegir producto
             unidadCompraSelect.innerHTML = `<option value="${productoEncontrado.unidadVenta}">${productoEncontrado.unidadVenta}</option>`;
+            datosPrecioActual = {
+                pvp: precioPVP.toFixed(2),
+                dto: dtoPresupuesto
+            };            
             modoCantidadManual = false; // Volvemos al modo bultos por defecto
             actualizarModoCantidadUI(); // Actualizamos la UI
         } else {

@@ -223,113 +223,160 @@ exports.getProductosPorMarca = onCall({
 });
 
 /**
- * Función invocable que recibe un array
- * de líneas de pedido y las guarda en Firestore.
+ * Función invocable que recibe un array de líneas de pedido, las guarda en
+ * Firestore, las añade a una hoja de Google Sheets y encola los emails.
  */
 exports.finalizarPedido = onCall({
-  // Usamos las mismas opciones globales
 }, async (request) => {
-  // Verificamos que el usuario está autenticado
+  // 1. Verificación de autenticación y argumentos
   if (!request.auth) {
-    throw new HttpsError(
-        "unauthenticated", "El usuario debe estar autenticado.");
+    throw new HttpsError("unauthenticated",
+        "El usuario debe estar autenticado.");
   }
-
-  const lineasPedido = request.data.lineas;
-  if (!lineasPedido ||
-    !Array.isArray(lineasPedido) ||
-    lineasPedido.length === 0) {
-    throw new HttpsError(
-        "invalid-argument",
+  const lineas = request.data.lineas;
+  if (!lineas || !Array.isArray(lineas) || lineas.length === 0) {
+    throw new HttpsError("invalid-argument",
         "No se han proporcionado líneas de pedido válidas.");
   }
 
   const usuarioEmail = request.auth.token.email;
   const db = getFirestore();
+  const auth = new google.auth.GoogleAuth({
+    keyFile: "service-account-key.json",
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  const sheets = google.sheets({version: "v4", auth});
   const batch = db.batch();
-  // Usamos un lote para guardar todas las líneas a la vez
+  const spreadsheetId = "1w0hHnLTe-p3qfz3tW6ngXMcHa1etm3gSNPudCoGD49w";
 
-  console.log(`Recibido pedido de ${usuarioEmail} 
-    con ${lineasPedido.length} líneas.`);
+  const lineasEnriquecidas = []; // Guardaremos las líneas con su nuevo ID aquí
 
-  lineasPedido.forEach((linea) => {
-    // Creamos una referencia a un nuevo documento en la colección 'pedidos'
+  // 2. Preparar los datos para Firestore (generando IDs primero)
+  lineas.forEach((linea) => {
     const pedidoRef = db.collection("pedidos").doc();
-
-    // Añadimos los datos del servidor a cada línea
     const datosAGuardar = {
-      ...linea, // Copiamos todos los datos que vienen del cliente
+      ...linea,
       usuarioEmail: usuarioEmail,
-      fechaCreacion: new Date(), // Usamos la fecha del servidor
-      estado: "Pedido", // Estado inicial
+      fechaCreacion: new Date(),
+      estado: "Pedido",
     };
-
-    // Añadimos la operación de creación al lote
     batch.set(pedidoRef, datosAGuardar);
+    // Guardamos la línea con su ID para usarla después
+    lineasEnriquecidas.push({...datosAGuardar, id: pedidoRef.id});
   });
 
   try {
-    // Ejecutamos todas las operaciones de guardado a la vez
+    // 2. Guardar todo en Firestore
     await batch.commit();
-    console.log(`Pedido de ${usuarioEmail} guardado con éxito.`);
+    console.log(`Pedido de ${usuarioEmail} guardado con éxito en Firestore.`);
 
-    // 2. NUEVA LÓGICA DE AGRUPACIÓN MÁS INTELIGENTE
-    const pedidosAgrupados = new Map();
-    lineasPedido.forEach((linea) => {
-      // Determinamos la dirección de entrega para ESTA línea específica
-      let direccionEntrega = "";
-      if (linea.proveedor === "ACE DISTRIBUCIÓN") {
-        direccionEntrega = linea.direccion;
-      } else {
-        direccionEntrega = linea.necesitaAlmacen ?
-                "Calle Galena 13, 47012 Valladolid" :
-                linea.direccion;
+    // 3. Filtramos para obtener solo las líneas de ACE DISTRIBUCIÓN
+    const lineasParaGSheets = lineasEnriquecidas.filter(
+        (linea) => linea.proveedor === "ACE DISTRIBUCION",
+    );
+
+    if (lineasParaGSheets.length > 0) {
+      // 4. Preparar las filas para Google Sheets
+      // --- LÍNEA CORREGIDA ---
+      const rowsToAppend = lineasParaGSheets.map((linea) => {
+        const fechaDoc = linea.fechaCreacion.toLocaleDateString("es-ES");
+        const fechaEntrega = new Date(linea.fechaEntrega)
+            .toLocaleDateString("es-ES");
+        const precioPVP = linea.precioPVP || 0;
+        // Corregido: Multiplicar por 100 para formato %
+        const descuento = (linea.dtoPresupuesto || 0);
+        const total = linea.cantidad *
+                precioPVP * (1 - (linea.dtoPresupuesto || 0));
+
+        return [
+          "", // A: fórmula
+          "", // B: fórmula
+          linea.expediente,
+          linea.usuarioEmail,
+          "", // E: nº documento
+          fechaDoc,
+          fechaEntrega,
+          "", // H: vacío
+          linea.id,
+          linea.referenciaEspecifica || "",
+          linea.marca,
+          linea.descripcion,
+          linea.bultos || "",
+          linea.cantidad,
+          linea.observaciones,
+          "", // P: vacío
+          "", // Q: vacío
+          parseFloat(precioPVP),
+          descuento,
+          total,
+        ];
+      });
+
+      // 5. Escribir en Google Sheets
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: spreadsheetId,
+        range: "Pedidos de cliente!A3",
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        resource: {
+          values: rowsToAppend,
+        },
+      });
+      console.log(`${rowsToAppend.length} filas de ACE DISTRIBUCIÓN
+        añadidas a Google Sheets.`);
+    } else {
+      console.log("No hay líneas para ACE DISTRIBUCIÓN");
+    }
+  } catch (error) {
+    console.error("Error al guardar el pedido en Firestore o G-Sheets:", error);
+    throw new HttpsError("internal",
+        "No se pudo guardar el pedido completamente.");
+  }
+
+  // 6. Agrupar y encolar emails
+  const pedidosAgrupados = new Map();
+  lineas.forEach((linea) => {
+    const direccionEntrega = linea.proveedor === "ACE DISTRIBUCIÓN" ?
+            linea.direccion :
+            (linea.necesitaAlmacen ?
+              "Calle Galena 13, 47012 Valladolid" : linea.direccion);
+
+    const groupKey = `${linea.proveedor.trim()}|${direccionEntrega}`;
+    if (!pedidosAgrupados.has(groupKey)) {
+      pedidosAgrupados.set(groupKey, {
+        nombreProveedor: linea.proveedor.trim(),
+        direccionEntrega: direccionEntrega,
+        lineas: [],
+      });
+    }
+    pedidosAgrupados.get(groupKey).lineas.push(linea);
+  });
+
+  for (const [key, grupo] of pedidosAgrupados.entries()) {
+    try {
+      const proveedorQuery = await db.collection("proveedores")
+          .where("tipo", "==", "Material")
+          .where("nombreFiscal", "==", grupo.nombreProveedor).limit(1).get();
+
+      if (proveedorQuery.empty) {
+        console.warn(`No se encontró el proveedor
+          '${grupo.nombreProveedor}' para enviarle el email.`);
+        continue;
+      }
+      const destinatarios = proveedorQuery.docs[0].data().emails;
+      if (!destinatarios || destinatarios.length === 0) {
+        console.warn(`El proveedor
+          '${grupo.nombreProveedor}' no tiene emails configurados.`);
+        continue;
       }
 
-      // Creamos una clave única para la agrupación
-      const groupKey = `${linea.proveedor.trim()}|${direccionEntrega}`;
-
-      if (!pedidosAgrupados.has(groupKey)) {
-        pedidosAgrupados.set(groupKey, {
-          nombreProveedor: linea.proveedor.trim(),
-          direccionEntrega: direccionEntrega,
-          lineas: [],
-        });
-      }
-      pedidosAgrupados.get(groupKey).lineas.push(linea);
-    });
-
-    // 3. Por cada GRUPO (Proveedor+Dirección), buscar email y enviar correo
-    for (const [key, grupo] of pedidosAgrupados.entries()) {
-      try {
-        const proveedorQuery = await db.collection("proveedores")
-            .where("tipo", "==", "Material")
-            .where("nombreFiscal", "==", grupo.nombreProveedor).limit(1).get();
-
-        if (proveedorQuery.empty) {
-          console.warn(`
-            No se encontró el proveedor '${grupo.nombreProveedor}'
-            para enviarle el email.`);
-          continue; // Saltamos al siguiente proveedor
-        }
-
-        const proveedorData = proveedorQuery.docs[0].data();
-        const destinatarios = proveedorData.emails;
-
-        if (!destinatarios || destinatarios.length === 0) {
-          console.warn(`El proveedor '${grupo.nombreProveedor}'
-            no tiene emails configurados.`);
-          continue;
-        }
-
-        // Creamos el documento para enviar el email a este proveedor específico
-        await db.collection("correos").add({
-          to: destinatarios,
-          replyTo: usuarioEmail,
-          bcc: [usuarioEmail],
-          message: {
-            subject: `Pedido - Expediente: ${grupo.lineas[0].expediente}`,
-            html: `
+      await db.collection("correos").add({
+        to: destinatarios,
+        replyTo: usuarioEmail,
+        bcc: [usuarioEmail],
+        message: {
+          subject: `Nuevo Pedido - Expediente: ${grupo.lineas[0].expediente}`,
+          html: `
               <h1>Nuevo Pedido Recibido</h1>
               <p>Pedido realizado por: <strong>${usuarioEmail}</strong>.</p>
               <p><strong>Expediente:
@@ -364,21 +411,17 @@ exports.finalizarPedido = onCall({
                   </tbody>
               </table>
           `,
-          },
-        });
-        console.log(`Email para el proveedor '${grupo.nombreProveedor}'
-          añadido a la cola de envío.`);
-      } catch (emailError) {
-        console.error(`Error al procesar el email para el grupo
-          ${key}:`, emailError);
-      }
+        },
+      });
+      console.log(`Email para '${grupo.nombreProveedor}' añadido a la cola.`);
+    } catch (emailError) {
+      console.error(`Error al procesar el email para el grupo ${key}:`,
+          emailError);
     }
-
-    return {success: true, message: "Pedido guardado correctamente."};
-  } catch (error) {
-    console.error("Error al guardar el pedido en Firestore:", error);
-    throw new HttpsError("internal", "No se pudo guardar el pedido.");
   }
+
+  return {success: true, message:
+    "Pedido guardado, añadido a G-Sheets y emails encolados."};
 });
 
 /**

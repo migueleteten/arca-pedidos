@@ -109,7 +109,7 @@ body {
 
 /* --- Contenido Principal --- */
 main#app {
-  max-width: 1200px;
+  max-width: 1300px;
   margin: 30px auto;
   padding: 30px;
 }
@@ -151,7 +151,6 @@ button:hover {
   background-color: var(--color-white);
   border-radius: 8px;
   box-shadow: var(--shadow);
-  padding: 20px;
 }
 
 table {
@@ -161,7 +160,7 @@ table {
 
 th,
 td {
-  padding: 15px;
+  padding: 10px;
   text-align: left;
   border-bottom: 1px solid var(--color-border);
 }
@@ -393,6 +392,12 @@ tbody tr:hover {
 #pedidos-tbody tr.selected {
   background-color: #fff3e0; /* Naranja muy claro */
   border-left: 4px solid var(--color-orange);
+}
+
+/* Estilo para filas con observaciones */
+#pedidos-tbody tr.tiene-observacion {
+  border-left: 5px solid #ffc107; /* Amarillo */
+  border-right: 5px solid #ffc107; /* Amarillo */
 }
 
 /* Barra de acciones en lote */
