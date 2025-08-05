@@ -69,13 +69,12 @@ const mostrarVistaPedidos = async () => {
         <div id="state-filters-container" class="state-filters"></div>
         <div id="pedidos-container"><table><thead><tr>
             <th id="th-select-all" style="width: 1%;"></th>
-            <th data-sort="fechaEntrega">Fecha de Entrega</th>
+            <th data-sort="fechaEntrega">Fecha Entrega</th>
             <th data-sort="expediente">Expediente / Dirección</th>
             <th data-sort="referenciaEspecifica">Referencia Específica</th>
             <th data-sort="codigo">Producto</th>
             <th data-sort="proveedor">Proveedor</th>
             <th data-sort="cantidad">Cant.</th>
-            <th data-sort="usuarioEmail">Usuario</th>
             <th data-sort="observaciones">Obs.</th>
             <th data-sort="estado">Estado</th><th>Acciones</th>
         </tr></thead><tbody id="pedidos-tbody"></tbody></table></div>`;
@@ -146,9 +145,17 @@ const mostrarVistaPedidos = async () => {
                 actionBar.classList.remove('visible');
                 return;
             }
+            
             const seleccion = todosLosPedidos.filter(p => lineasSeleccionadas.has(p.id));
-            const puedeRecibir = esAdmin && seleccion.every(p => p.pedido.estado === 'Pedido' && p.pedido.necesitaAlmacen);
-            const puedeEnviar = esAdmin && seleccion.every(p => (p.pedido.estado === 'Recibido en Almacén') || (p.pedido.estado === 'Pedido' && !p.pedido.necesitaAlmacen));
+            
+            // --- LÓGICA CORREGIDA PARA BOTONES EN LOTE ---
+            const puedeRecibir = esAdmin && seleccion.every(p => 
+                (p.pedido.estado === 'Pedido' || p.pedido.estado === 'Recibido Parcial') && p.pedido.necesitaAlmacen
+            );
+            const puedeEnviar = esAdmin && seleccion.every(p => 
+                (p.pedido.estado === 'Recibido en Almacén' || p.pedido.estado === 'Recibido Parcial' || (p.pedido.estado === 'Pedido' && !p.pedido.necesitaAlmacen))
+            );
+
             actionBar.innerHTML = `<p>${lineasSeleccionadas.size} línea(s) seleccionada(s)</p>
                 <button id="bulk-recibir" ${!puedeRecibir ? 'disabled' : ''}>Recibir en Lote</button>
                 <button id="bulk-enviar" ${!puedeEnviar ? 'disabled' : ''}>Enviar en Lote</button>`;
@@ -169,7 +176,27 @@ const mostrarVistaPedidos = async () => {
                 return;
             }
             const filasHtml = pedidosParaMostrar.map(data => {
-                const { pedido, id } = data;
+                const { pedido, id, movimientos } = data;
+
+                // --- NUEVA LÓGICA DE CÁLCULO DE CANTIDADES Y ESTADO ---
+                const totalRecibido = movimientos
+                    .filter(m => m.tipo === 'entrada')
+                    .reduce((sum, m) => sum + m.cantidadRecibida, 0);
+                
+                const totalEnviado = movimientos
+                    .filter(m => m.tipo === 'salida')
+                    .reduce((sum, m) => sum + m.cantidadEnviada, 0);
+
+                let estadoCalculado = pedido.estado; // Usamos el estado guardado como base
+                // Podríamos recalcularlo aquí si quisiéramos, pero de momento es suficiente
+
+                // --- NUEVO FORMATO PARA LA CELDA DE CANTIDAD ---
+                const cantidadHtml = `
+                    <div>Pedido: <strong>${pedido.cantidad} ${pedido.unidadVenta}</strong></div>
+                    <div style="color: blue;">Recibido: ${totalRecibido.toFixed(2)}</div>
+                    <div style="color: green;">Enviado: ${totalEnviado.toFixed(2)}</div>
+                `;
+
                 const isSelected = lineasSeleccionadas.has(id);
                 let fechaEntregaFormateada = '-';
                 // Comprobamos que el dato existe y es un string
@@ -189,9 +216,15 @@ const mostrarVistaPedidos = async () => {
                 // Añadimos la clase 'tiene-observacion' al <tr> si es necesario
                 const obsClass = pedido.observaciones ? 'tiene-observacion' : '';
 
-                if (esAdmin && pedido.necesitaAlmacen) {
-                    if (pedido.estado === 'Pedido') accionesHtml = `<button class="icon-button" data-id="${id}" data-action="recibir" title="Recibir"><span class="material-symbols-outlined">warehouse</span></button>`;
-                    else if (pedido.estado === 'Recibido en Almacén') accionesHtml = `<button class="icon-button" data-id="${id}" data-action="enviar" title="Enviar"><span class="material-symbols-outlined">local_shipping</span></button>`;
+                if (esAdmin) {
+                    // Botón Recibir: Visible en 'Pedido' Y 'Recibido Parcial' (si necesita almacén)
+                    if ((pedido.estado === 'Pedido' || pedido.estado === 'Recibido Parcial') && pedido.necesitaAlmacen) {
+                        accionesHtml += `<button class="icon-button" data-id="${id}" data-action="recibir" title="Recibir"><span class="material-symbols-outlined">warehouse</span></button>`;
+                    }
+                    // Botón Enviar: Visible en 'Recibido en Almacén', 'Recibido Parcial', o 'Pedido' (si es directo a obra)
+                    if (pedido.estado === 'Recibido Completo' || pedido.estado === 'Recibido Parcial' || (pedido.estado === 'Pedido' && !pedido.necesitaAlmacen)) {
+                        accionesHtml += `<button class="icon-button" data-id="${id}" data-action="enviar" title="Enviar"><span class="material-symbols-outlined">local_shipping</span></button>`;
+                    }
                 }
                 if (pedido.usuarioEmail === currentUser.email) {
                     if (pedido.estado === 'Enviado a Obra') accionesHtml += `<button class="icon-button" data-id="${id}" data-action="entregado" title="Recibido"><span class="material-symbols-outlined">task_alt</span></button>`;
@@ -200,13 +233,12 @@ const mostrarVistaPedidos = async () => {
                 const statusClass = `status-${pedido.estado.split(' ')[0].toLowerCase()}`;
                 return `<tr class="${isSelected ? 'selected' : ''} ${obsClass ? 'tiene-observacion' : ''}" data-id="${id}">
                     ${esAdmin ? `<td data-label="Select"><input type="checkbox" class="linea-checkbox" data-id="${id}" ${isSelected ? 'checked' : ''}></td>` : '<td style="display:none;" data-label="Select"></td>'}
-                    <td data-label="Fecha"><small>${fecha}</small></td>
+                    <td data-label="Fecha"><small>${fecha} ${pedido.usuarioEmail.split('@')[0]}</small></td>
                     <td data-label="Expediente / Dirección"><strong>${pedido.expediente}</strong><br><small>${pedido.direccion}</small></td>
-                    <td data-label="Referencia Específica">${pedido.referenciaEspecifica || '-'}</td>
+                    <td data-label="Referencia Específica" class="desktop-only">${pedido.referenciaEspecifica || '-'}</td>
                     <td data-label="Producto"><strong>${pedido.codigo}</strong><br><small>${pedido.descripcion}</small></td>
                     <td data-label="Proveedor"><small>${pedido.proveedor}</small></td>
-                    <td data-label="Cantidad">${parseFloat(pedido.cantidad).toFixed(2)} ${pedido.unidadVenta}</td>
-                    <td data-label="Usuario">${pedido.usuarioEmail.split('@')[0]}</td>
+                    <td data-label="Cantidad">${cantidadHtml}</td>
                     <td data-label="Obs." class="comment-cell">${obsIcon}</td>
                     <td data-label="Estado"><span class="status-badge ${statusClass}">${pedido.estado}</span></td>
                     <td data-label="Acciones / ID">
@@ -219,14 +251,134 @@ const mostrarVistaPedidos = async () => {
             }).join('');
             pedidosTbody.innerHTML = filasHtml;
         };
+
+        const abrirModalDeRecepcion = (lineasARecibir) => {
+            const modalOverlay = document.createElement('div');
+            modalOverlay.className = 'modal-overlay';
+            modalOverlay.innerHTML = `
+                <div class="modal-content">
+                    <h3>Registrar Entrada de Mercancía</h3>
+                    <div class="form-field" style="text-align: left; margin-bottom: 20px;">
+                        <label for="albaran-proveedor">Nº Albarán(es) del Proveedor</label>
+                        <input type="text" id="albaran-proveedor" placeholder="Ej: A-1234, A-5678">
+                    </div>
+                    <div id="recepcion-items-list"></div>
+                    <div class="form-field" style="text-align: left; margin-top: 20px;">
+                        <label for="recepcion-notas">Notas / Incidencias</label>
+                        <textarea id="recepcion-notas" rows="3" placeholder="Ej: Una caja rota..."></textarea>
+                    </div>
+                    <div class="modal-buttons" style="margin-top: 20px;">
+                        <button id="cancel-recepcion" class="btn-secondary">Cancelar</button>
+                        <button id="confirm-recepcion">Confirmar Recepción</button>
+                    </div>
+                </div>`;
+            
+            // Generamos la lista de items dinámicamente
+            const itemsList = modalOverlay.querySelector('#recepcion-items-list');
+            lineasARecibir.forEach((item, index) => {
+                const udBulto = item.pedido.udBulto || 1;
+                const bultosHelper = udBulto !== 1 ? `
+                    <div class="helper-text">
+                        Ayuda: <input type="number" class="helper-input" data-index="${index}"> bultos
+                        (${udBulto} ${item.pedido.unidadVenta}/bulto)
+                    </div>` : '';
+
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'recepcion-modal-item';
+                itemDiv.dataset.id = item.id;
+                itemDiv.innerHTML = `
+                    <div class="info">
+                        <strong>${item.pedido.descripcion}</strong>
+                        <small>${item.pedido.codigo} | Pedido: ${item.pedido.cantidad} ${item.pedido.unidadVenta}</small>
+                    </div>
+                    <div class="actions">
+                        <label for="cantidad-recibida-${index}">Cant. Recibida</label>
+                        <input type="number" class="main-input" id="cantidad-recibida-${index}" value="${item.pedido.cantidad}" inputmode="decimal">
+                        ${bultosHelper}
+                    </div>`;
+                itemsList.appendChild(itemDiv);
+            });
+
+            document.body.appendChild(modalOverlay);
+
+            // Asignamos listeners a los nuevos inputs
+            itemsList.querySelectorAll('.helper-input').forEach(input => {
+                input.addEventListener('input', e => {
+                    const index = e.target.dataset.index;
+                    const item = lineasARecibir[index];
+                    const bultos = parseFloat(e.target.value) || 0;
+                    document.getElementById(`cantidad-recibida-${index}`).value = (bultos * item.pedido.udBulto).toFixed(2);
+                });
+            });
+
+            const confirmBtn = document.getElementById('confirm-recepcion');
+            const cancelBtn = document.getElementById('cancel-recepcion');
+
+            const handleConfirm = async () => {
+                const albaranProveedor = document.getElementById('albaran-proveedor').value;
+                const notas = document.getElementById('recepcion-notas').value;
+
+                const recepciones = lineasARecibir.map((item, index) => {
+                    const cantidadRecibida = parseFloat(document.getElementById(`cantidad-recibida-${index}`).value);
+                    return {
+                        id: item.id,
+                        cantidadRecibida: isNaN(cantidadRecibida) ? 0 : cantidadRecibida
+                    };
+                });
+
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = 'Procesando...';
+
+                try {
+                    const registrarEntrada = functions.httpsCallable('registrarEntrada');
+                    await registrarEntrada({ recepciones, albaranProveedor, notas });
+                    
+                    alert('¡Recepción registrada con éxito!');
+                    document.body.removeChild(modalOverlay);
+
+                    lineasSeleccionadas.clear();
+                    actualizarBarraAcciones();
+                    mostrarVista('pedidos');
+
+                } catch (error) {
+                    console.error("Error al confirmar recepción:", error);
+                    alert(`Error: ${error.message}`);
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Confirmar Recepción';
+                }
+            };
+
+            confirmBtn.onclick = handleConfirm;
+            cancelBtn.onclick = () => document.body.removeChild(modalOverlay);
+        };
         
         // --- Carga inicial de datos ---
-        pedidosTbody.innerHTML = `<tr><td colspan="9">Cargando...</td></tr>`;
-        const snapshot = await db.collection('pedidos').orderBy('fechaCreacion', 'desc').get();
-        todosLosPedidos = snapshot.docs.map(doc => ({ id: doc.id, pedido: doc.data() }));
+        pedidosTbody.innerHTML = `<tr><td colspan="9">Cargando datos...</td></tr>`;
+
+        // 1. Obtenemos todos los pedidos
+        const pedidosSnapshot = await db.collection('pedidos').orderBy('fechaCreacion', 'desc').get();
+        todosLosPedidos = pedidosSnapshot.docs.map(doc => ({ id: doc.id, pedido: doc.data() }));
+
+        // 2. Obtenemos TODOS los movimientos de una sola vez
+        const movimientosSnapshot = await db.collectionGroup('movimientos').get();
+        const movimientosPorPedido = new Map();
+        movimientosSnapshot.forEach(doc => {
+            const pedidoId = doc.ref.parent.parent.id; // Obtenemos el ID del pedido padre
+            if (!movimientosPorPedido.has(pedidoId)) {
+                movimientosPorPedido.set(pedidoId, []);
+            }
+            movimientosPorPedido.get(pedidoId).push(doc.data());
+        });
+
+        // 3. Unimos los movimientos a sus pedidos correspondientes
+        todosLosPedidos.forEach(p => {
+            p.movimientos = movimientosPorPedido.get(p.id) || [];
+        });
+        
+        // Renderizamos la tabla por primera vez con los datos completos
         renderizarTabla();
 
-         // --- Asignación de TODOS los Event Listeners ---
+        // --- Asignación de TODOS los Event Listeners ---
 
         // Listener para Búsqueda
         searchInput.addEventListener('input', e => {
@@ -270,13 +422,21 @@ const mostrarVistaPedidos = async () => {
             const tr = e.target.closest('tr');
             const commentCell = e.target.closest('.comment-cell');
 
-            // Si se hace clic en un botón de acción individual
+            // --- Lógica para botones de acción individuales ---
             if (button) {
-                e.stopPropagation(); // Detiene la propagación para no seleccionar la fila
+                e.stopPropagation(); // Prevenimos que se seleccione la fila
                 const pedidoId = button.dataset.id;
                 const accion = button.dataset.action;
+
+                // Si la acción es 'recibir', abrimos el modal
+                if (accion === 'recibir') {
+                    const lineaARecibir = todosLosPedidos.find(p => p.id === pedidoId);
+                    abrirModalDeRecepcion([lineaARecibir]);
+                    return; // Terminamos aquí
+                }
+
+                // Para el resto de acciones ('enviar', 'entregado'), mantenemos la lógica anterior
                 const estados = {
-                    recibir: 'Recibido en Almacén',
                     enviar: 'Enviado a Obra',
                     entregado: 'Recibido en Destino',
                     entregado_directo: 'Recibido en Destino'
@@ -327,7 +487,15 @@ const mostrarVistaPedidos = async () => {
                     alert(`Observaciones:\n\n${comentario}`); // Solo muestra el comentario, no pide editar
                 }
                 return; // Detenemos la ejecución para no seleccionar la fila
-            }            
+            }
+            
+            if (button && button.dataset.action === 'recibir') {
+                e.stopPropagation();
+                const pedidoId = button.dataset.id;
+                const lineaARecibir = todosLosPedidos.find(p => p.id === pedidoId);
+                abrirModalDeRecepcion([lineaARecibir]); // Pasamos la línea dentro de un array
+                return;
+            }
         });
         
         // Listener para la barra de acciones en lote
@@ -335,35 +503,42 @@ const mostrarVistaPedidos = async () => {
             const button = e.target.closest('button');
             if (!button || button.disabled) return;
             
-            const accion = button.id === 'bulk-recibir' ? 'recibir' : 'enviar';
-            const nuevoEstado = accion === 'recibir' ? 'Recibido en Almacén' : 'Enviado a Obra';
-            
-            if (!confirm(`¿Confirmas que quieres ${accion} ${lineasSeleccionadas.size} líneas en lote?`)) return;
+            // --- Lógica separada para cada botón ---
 
-            button.disabled = true;
-            button.textContent = 'Procesando...';
+            if (button.id === 'bulk-recibir') {
+                const lineasARecibir = todosLosPedidos.filter(p => lineasSeleccionadas.has(p.id));
+                abrirModalDeRecepcion(lineasARecibir);
             
-            const actualizarEstado = functions.httpsCallable('actualizarEstadoPedido');
-            const promesas = [];
-            lineasSeleccionadas.forEach(pedidoId => {
-                promesas.push(actualizarEstado({ pedidoId, nuevoEstado }));
-            });
+            } else if (button.id === 'bulk-enviar') {
+                const nuevoEstado = 'Enviado a Obra';
+                if (!confirm(`¿Confirmas que quieres cambiar el estado a "${nuevoEstado}" para ${lineasSeleccionadas.size} líneas?`)) return;
 
-            try {
-                await Promise.all(promesas);
-                todosLosPedidos.forEach(p => {
-                    if (lineasSeleccionadas.has(p.id)) {
-                        p.pedido.estado = nuevoEstado;
-                    }
+                button.disabled = true;
+                button.textContent = 'Procesando...';
+                
+                const actualizarEstado = functions.httpsCallable('actualizarEstadoPedido');
+                const promesas = [];
+                lineasSeleccionadas.forEach(pedidoId => {
+                    promesas.push(actualizarEstado({ pedidoId, nuevoEstado }));
                 });
-                lineasSeleccionadas.clear();
-                actualizarBarraAcciones();
-                renderizarTabla();
-            } catch (error) {
-                console.error("Error en acción por lote:", error);
-                alert(`Error: ${error.message}`);
-                button.disabled = false;
-                button.textContent = accion === 'recibir' ? 'Recibir en Lote' : 'Enviar en Lote';
+
+                try {
+                    await Promise.all(promesas);
+                    todosLosPedidos.forEach(p => {
+                        if (lineasSeleccionadas.has(p.id)) {
+                            p.pedido.estado = nuevoEstado;
+                        }
+                    });
+                    lineasSeleccionadas.clear();
+                    actualizarBarraAcciones();
+                    renderizarTabla();
+                } catch (error) {
+                    console.error("Error en acción por lote 'enviar':", error);
+                    alert(`Error: ${error.message}`);
+                    // Reactivamos el botón si hay un error
+                    button.disabled = false;
+                    button.textContent = 'Enviar en Lote';
+                }
             }
         });
         
@@ -614,6 +789,8 @@ const mostrarVistaNuevoPedido = () => {
     const añadirLineaAlPedido = () => {
         const proveedorSeleccionado = document.getElementById('proveedor').value;
         const necesitaAlmacenCheck = document.getElementById('necesita-almacen').checked;
+        const codigoSeleccionado = form.codigo.value;
+        const productoSeleccionado = productosDeMarcaActual.find(p => p.codigo === codigoSeleccionado);        
 
         const linea = {
             expediente: form.expediente.value,
@@ -625,6 +802,7 @@ const mostrarVistaNuevoPedido = () => {
             fechaEntrega: form.fechaEntrega.value,
             bultos: parseFloat(form.bultos.value) || 0,
             cantidad: parseFloat(form.cantidad.value) || 0,
+            udBulto: (productoSeleccionado ? productoSeleccionado.udBulto : 1),
             precio: parseFloat(form.precio.value) || 0,
             unidadVenta: form.unidadCompra.value,
             observaciones: form.observaciones.value,

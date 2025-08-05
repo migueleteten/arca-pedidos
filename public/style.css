@@ -547,6 +547,57 @@ tbody tr:hover {
   background-color: #6c757d;
 }
 
+/* --- Estilos para el Modal de Recepción --- */
+.recepcion-modal-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 15px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.recepcion-modal-item:last-child {
+  border-bottom: none;
+}
+.recepcion-modal-item .info {
+  text-align: left;
+}
+.recepcion-modal-item .info strong {
+  font-size: 14px;
+  display: block;
+}
+.recepcion-modal-item .info small {
+  font-size: 12px;
+  color: #6c757d;
+}
+.recepcion-modal-item .actions {
+  text-align: right;
+}
+.recepcion-modal-item .actions label {
+  font-size: 12px;
+  display: block;
+}
+.recepcion-modal-item .actions .main-input {
+  width: 80px;
+  text-align: center;
+  font-size: 16px;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.recepcion-modal-item .actions .helper-input {
+  width: 60px;
+  font-size: 12px;
+  padding: 4px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  text-align: center;
+  margin-top: 4px;
+}
+.recepcion-modal-item .actions .helper-text {
+  font-size: 11px;
+  color: #6c757d;
+}
+
 /* --- MAGIA RESPONSIVE: VISTA MÓVIL DE ALTA DENSIDAD --- */
 @media screen and (max-width: 760px) {
   body {

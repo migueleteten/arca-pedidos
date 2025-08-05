@@ -85,6 +85,7 @@ exports.syncGSheetsToFirestore = onRequest(async (req, res) => {
       marcasBatch.set(docRef, {
         nombre: nombre,
         idHoja: row[1] || "",
+        proveedorOriginal: row[2] || "", // Columna C
         // Columnas D, E, F, G añadidas
         multiplicadorPC: parseMultiplier(row[3]), // Columna D
         multiplicadorPV: parseMultiplier(row[4]), // Columna E
@@ -405,7 +406,9 @@ exports.finalizarPedido = onCall({
                               <td>${linea.codigo}</td>
                               <td>${linea.descripcion}</td>
                               <td>${linea.cantidad} ${linea.unidadVenta}</td>
-                              <td>${linea.observaciones || ""}</td>
+                              <td style="background-color: ${linea.observaciones ? "yellow" : "transparent"};">
+                                ${linea.observaciones || ""}
+                              </td>
                           </tr>
                       `).join("")}
                   </tbody>
@@ -471,6 +474,109 @@ exports.actualizarEstadoPedido = onCall({
         `Error al actualizar el estado del pedido ${pedidoId}:`, error);
     throw new HttpsError(
         "internal", "No se pudo actualizar el estado del pedido.");
+  }
+});
+
+/**
+ * Registra un movimiento de entrada para una o varias líneas de pedido.
+ */
+exports.registrarEntrada = onCall({
+}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "El usuario debe estar autenticado.");
+  }
+
+  const {recepciones, albaranProveedor, notas} = request.data;
+  if (!recepciones || !Array.isArray(recepciones) || recepciones.length === 0) {
+    throw new HttpsError("invalid-argument", "No se proporcionaron líneas para recibir.");
+  }
+
+  const usuarioEmail = request.auth.token.email;
+  const db = getFirestore();
+  const batch = db.batch();
+  const fechaRecepcion = new Date();
+
+  // Tus añadidos, que son correctos:
+  const auth = new google.auth.GoogleAuth({
+    keyFile: "service-account-key.json",
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  const sheets = google.sheets({version: "v4", auth});
+  const spreadsheetId = "1w0hHnLTe-p3qfz3tW6ngXMcHa1etm3gSNPudCoGD49w";
+
+  const rowsToAppend = []; // Array para las filas de G-Sheets
+
+  try {
+    // --- BUCLE PRINCIPAL PARA PREPARAR TODAS LAS OPERACIONES ---
+    for (const item of recepciones) {
+      const pedidoRef = db.collection("pedidos").doc(item.id);
+      const movimientoRef = pedidoRef.collection("movimientos").doc();
+
+      const pedidoSnap = await pedidoRef.get();
+      if (!pedidoSnap.exists) {
+        console.warn(`Pedido ${item.id} no encontrado, se omite.`);
+        continue; // Saltamos al siguiente item del bucle
+      }
+      const pedidoData = pedidoSnap.data();
+
+      // 1. Preparamos el movimiento para Firestore
+      batch.set(movimientoRef, {
+        tipo: "entrada",
+        fecha: fechaRecepcion,
+        cantidadRecibida: item.cantidadRecibida,
+        albaranProveedor: albaranProveedor || "",
+        notas: notas || "",
+        usuario: usuarioEmail,
+      });
+
+      // 2. Preparamos la actualización de estado para el pedido principal
+      const movimientosSnap = await pedidoRef.collection("movimientos").where("tipo", "==", "entrada").get();
+      const totalRecibidoAnterior = movimientosSnap.docs.reduce((sum, doc) => sum + doc.data().cantidadRecibida, 0);
+      const totalRecibidoActual = totalRecibidoAnterior + item.cantidadRecibida;
+      const cantidadPedida = pedidoData.cantidad;
+      const nuevoEstado = totalRecibidoActual >= cantidadPedida ? "Recibido Completo" : "Recibido Parcial";
+      batch.update(pedidoRef, {estado: nuevoEstado});
+
+      // 3. Preparamos la fila para Google Sheets
+      const marcaSnap = await db.collection("marcas").doc(pedidoData.marca).get();
+      const proveedorOriginal = marcaSnap.exists ? marcaSnap.data().proveedorOriginal : pedidoData.proveedor;
+      const total = item.cantidadRecibida * (pedidoData.precioPVP || 0) * (1 - (pedidoData.dtoPresupuesto || 0));
+
+      rowsToAppend.push([
+        "", "", pedidoData.expediente, proveedorOriginal, "",
+        fechaRecepcion.toLocaleDateString("es-ES"), "", "", item.id,
+        albaranProveedor || "", pedidoData.marca, pedidoData.descripcion,
+        "", // Bultos
+        pedidoData.cantidad, // Cantidad pedida
+        item.cantidadRecibida, // Cantidad recibida en este movimiento
+        "", "", parseFloat(pedidoData.precioPVP) || 0,
+        (pedidoData.dtoPresupuesto || 0), total,
+      ]);
+    }
+
+    // --- EJECUCIÓN DE TODAS LAS OPERACIONES ---
+
+    // 4. Ejecutamos las escrituras en Firestore
+    await batch.commit();
+    console.log("Movimientos y estados actualizados en Firestore.");
+
+    // 5. Escribimos en Google Sheets si hay filas preparadas
+    if (rowsToAppend.length > 0) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: "Albaranes de entrada!A3",
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        resource: {values: rowsToAppend},
+      });
+      console.log(`${rowsToAppend.length} filas añadidas a Albaranes de entrada.`);
+    }
+
+    console.log(`Entrada registrada para ${recepciones.length} líneas por ${usuarioEmail}.`);
+    return {success: true, message: "Recepción registrada correctamente."};
+  } catch (error) {
+    console.error("Error al registrar entrada:", error);
+    throw new HttpsError("internal", "No se pudo registrar la entrada de mercancía.");
   }
 });
 
