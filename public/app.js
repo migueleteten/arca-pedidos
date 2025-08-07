@@ -253,85 +253,244 @@ const mostrarVistaPedidos = async () => {
         };
 
         const abrirModalDeRecepcion = (lineasARecibir) => {
+            // Detectamos si el dispositivo es móvil (Android / iOS)
+            const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+            // Inicializamos el estado de cada línea
+            const estadoLineas = lineasARecibir.map(item => ({
+                tipo: 'entrada',
+                cantidadRecibida: item.pedido.cantidad,
+                nota: '',
+                fotoAlbaranFile: null,
+            }));
+            let fotosGeneralesFiles = [];
+
             const modalOverlay = document.createElement('div');
             modalOverlay.className = 'modal-overlay';
             modalOverlay.innerHTML = `
                 <div class="modal-content">
                     <h3>Registrar Entrada de Mercancía</h3>
-                    <div class="form-field" style="text-align: left; margin-bottom: 20px;">
-                        <label for="albaran-proveedor">Nº Albarán(es) del Proveedor</label>
-                        <input type="text" id="albaran-proveedor" placeholder="Ej: A-1234, A-5678">
+                    <div class="general-photo-upload" style="text-align: left; margin-bottom: 20px;">
+                        <label for="fotos-generales-input">Fotos Generales del Evento (Palés, etc.)</label>
+                        <br>
+                        <label class="upload-btn">
+                            <span class="material-symbols-outlined">add_a_photo</span> Añadir Fotos
+                            <input 
+                                type="file" 
+                                id="fotos-generales-input" 
+                                accept="image/*" 
+                                multiple
+                                ${isMobile ? 'capture="environment"' : ''}
+                            >
+                        </label>
+                        <div id="general-photo-previews" class="photo-previews"></div>
                     </div>
-                    <div id="recepcion-items-list"></div>
-                    <div class="form-field" style="text-align: left; margin-top: 20px;">
-                        <label for="recepcion-notas">Notas / Incidencias</label>
-                        <textarea id="recepcion-notas" rows="3" placeholder="Ej: Una caja rota..."></textarea>
-                    </div>
+                    
+                    <div id="recepcion-items-list" style="max-height: 40vh; overflow-y: auto;"></div>
+
                     <div class="modal-buttons" style="margin-top: 20px;">
                         <button id="cancel-recepcion" class="btn-secondary">Cancelar</button>
                         <button id="confirm-recepcion">Confirmar Recepción</button>
                     </div>
                 </div>`;
-            
-            // Generamos la lista de items dinámicamente
-            const itemsList = modalOverlay.querySelector('#recepcion-items-list');
-            lineasARecibir.forEach((item, index) => {
-                const udBulto = item.pedido.udBulto || 1;
-                const bultosHelper = udBulto !== 1 ? `
-                    <div class="helper-text">
-                        Ayuda: <input type="number" class="helper-input" data-index="${index}"> bultos
-                        (${udBulto} ${item.pedido.unidadVenta}/bulto)
-                    </div>` : '';
 
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'recepcion-modal-item';
-                itemDiv.dataset.id = item.id;
-                itemDiv.innerHTML = `
-                    <div class="info">
-                        <strong>${item.pedido.descripcion}</strong>
-                        <small>${item.pedido.codigo} | Pedido: ${item.pedido.cantidad} ${item.pedido.unidadVenta}</small>
-                    </div>
-                    <div class="actions">
-                        <label for="cantidad-recibida-${index}">Cant. Recibida</label>
-                        <input type="number" class="main-input" id="cantidad-recibida-${index}" value="${item.pedido.cantidad}" inputmode="decimal">
-                        ${bultosHelper}
+            // --- Función para renderizar los items ---
+            const renderizarItemsModal = () => {
+                const itemsList = modalOverlay.querySelector('#recepcion-items-list');
+                itemsList.innerHTML = lineasARecibir.map((item, index) => {
+                    const estadoActual = estadoLineas[index];
+                    const udBulto = item.pedido.udBulto || 1;
+
+                    const notaIcon = estadoActual.nota
+                        ? `<button class="icon-button notas-btn" data-index="${index}" title="Ver/Editar Nota">
+                            <span class="material-symbols-outlined" style="color: var(--color-orange);">speaker_notes</span>
+                        </button>`
+                        : `<button class="icon-button notas-btn" data-index="${index}" title="Añadir Nota">
+                            <span class="material-symbols-outlined" style="color: #ccc;">speaker_notes_off</span>
+                        </button>`;
+
+                    const bultosHelper = udBulto !== 1 ? `
+                        <div class="helper-text">
+                            Ayuda: <input type="number" class="helper-input" data-index="${index}"> bultos
+                            (${udBulto} ${item.pedido.unidadVenta}/bulto)
+                        </div>` : '';
+
+                    // input de foto de albarán con capture si es móvil
+                    const fotoAlbaranHtml = estadoActual.tipo === 'entrada' ? `
+                        <div class="item-photo-upload">
+                            <label class="upload-btn">
+                                <span class="material-symbols-outlined">add_photo_alternate</span>
+                                ${estadoActual.fotoAlbaranFile ? '1 FOTO' : 'Albarán*'}
+                                <input 
+                                    type="file" 
+                                    class="foto-albaran-input" 
+                                    data-index="${index}" 
+                                    accept="image/*"
+                                    ${isMobile ? 'capture="environment"' : ''}
+                                >
+                            </label>
+                        </div>` : '<div></div>';
+
+                    return `
+                    <div class="recepcion-modal-item" data-id="${item.id}">
+                        <div class="info">
+                            <strong>${item.pedido.descripcion}</strong>
+                            <small>${item.pedido.codigo} | Pedido: ${item.pedido.cantidad} ${item.pedido.unidadVenta}</small>
+                        </div>
+                        <div class="cantidad-container">
+                            <label for="cantidad-recibida-${index}">Cant. Recibida</label>
+                            <input type="number" class="main-input" id="cantidad-recibida-${index}" value="${estadoActual.cantidadRecibida}" inputmode="decimal">
+                            ${bultosHelper}
+                        </div>
+                        <div class="item-controls">
+                            <button class="control-btn ${estadoActual.tipo === 'entrada' ? 'active' : ''}" data-index="${index}" data-tipo="entrada">🚚 Registrar Entrada</button>
+                            <button class="control-btn ${estadoActual.tipo === 'asignacion_stock' ? 'active' : ''}" data-index="${index}" data-tipo="asignacion_stock">📦 Asignar Stock</button>
+                            ${notaIcon}
+                        </div>
+                        <div class="uploads-container">${fotoAlbaranHtml}</div>
                     </div>`;
-                itemsList.appendChild(itemDiv);
-            });
+                }).join('');
+            };
 
             document.body.appendChild(modalOverlay);
+            renderizarItemsModal();
 
-            // Asignamos listeners a los nuevos inputs
-            itemsList.querySelectorAll('.helper-input').forEach(input => {
-                input.addEventListener('input', e => {
-                    const index = e.target.dataset.index;
-                    const item = lineasARecibir[index];
-                    const bultos = parseFloat(e.target.value) || 0;
-                    document.getElementById(`cantidad-recibida-${index}`).value = (bultos * item.pedido.udBulto).toFixed(2);
-                });
-            });
-
+            // --- Eventos del modal ---
+            const itemsList = modalOverlay.querySelector('#recepcion-items-list');
+            const previewsContainer = document.getElementById('general-photo-previews');
             const confirmBtn = document.getElementById('confirm-recepcion');
             const cancelBtn = document.getElementById('cancel-recepcion');
 
-            const handleConfirm = async () => {
-                const albaranProveedor = document.getElementById('albaran-proveedor').value;
-                const notas = document.getElementById('recepcion-notas').value;
+            itemsList.addEventListener('click', e => {
+                const controlBtn = e.target.closest('.control-btn');
+                const notasBtn = e.target.closest('.notas-btn');
 
-                const recepciones = lineasARecibir.map((item, index) => {
-                    const cantidadRecibida = parseFloat(document.getElementById(`cantidad-recibida-${index}`).value);
-                    return {
-                        id: item.id,
-                        cantidadRecibida: isNaN(cantidadRecibida) ? 0 : cantidadRecibida
-                    };
+                if (controlBtn) {
+                    const index = parseInt(controlBtn.dataset.index);
+                    estadoLineas[index].tipo = controlBtn.dataset.tipo;
+                    renderizarItemsModal();
+                }
+
+                if (notasBtn) {
+                    const index = parseInt(notasBtn.dataset.index);
+                    const notaActual = estadoLineas[index].nota || "";
+                    const nuevaNota = prompt("Nota / Incidencia de la línea:", notaActual);
+                    if (nuevaNota !== null) {
+                        estadoLineas[index].nota = nuevaNota;
+                        renderizarItemsModal();
+                    }
+                }
+            });
+
+            itemsList.addEventListener('input', e => {
+                const index = parseInt(e.target.dataset.index);
+                if (e.target.classList.contains('helper-input')) {
+                    const item = lineasARecibir[index];
+                    const bultos = parseFloat(e.target.value) || 0;
+                    document.getElementById(`cantidad-recibida-${index}`).value = (bultos * item.pedido.udBulto).toFixed(2);
+                }
+                if (e.target.classList.contains('main-input')) {
+                    estadoLineas[index].cantidadRecibida = parseFloat(e.target.value);
+                }
+            });
+
+            itemsList.addEventListener('change', e => {
+                if (e.target.classList.contains('foto-albaran-input')) {
+                    const index = parseInt(e.target.dataset.index);
+                    if (e.target.files.length > 0) {
+                        estadoLineas[index].fotoAlbaranFile = e.target.files[0];
+                        renderizarItemsModal();
+                    }
+                }
+            });
+
+            document.getElementById('fotos-generales-input').addEventListener('change', e => {
+                const nuevosArchivos = Array.from(e.target.files);
+                fotosGeneralesFiles.push(...nuevosArchivos);
+                renderizarFotosGenerales();
+            });
+
+            previewsContainer.addEventListener('click', e => {
+                if (e.target.tagName === 'IMG') {
+                    if (confirm('¿Eliminar esta foto?')) {
+                        const index = parseInt(e.target.dataset.index);
+                        fotosGeneralesFiles.splice(index, 1);
+                        renderizarFotosGenerales();
+                    }
+                }
+            });
+
+            const renderizarFotosGenerales = () => {
+                const filePromises = fotosGeneralesFiles.map((file, index) => {
+                    return new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onload = event => {
+                            resolve(`<img src="${event.target.result}" alt="${file.name}" data-index="${index}">`);
+                        };
+                        reader.readAsDataURL(file);
+                    });
                 });
+                Promise.all(filePromises).then(imagesHtml => {
+                    previewsContainer.innerHTML = imagesHtml.join('');
+                });
+            };
 
+            cancelBtn.onclick = () => document.body.removeChild(modalOverlay);
+            confirmBtn.onclick = async () => {
                 confirmBtn.disabled = true;
-                confirmBtn.textContent = 'Procesando...';
+                confirmBtn.textContent = 'Subiendo fotos...';
+
+                // --- Lógica de Subida de Archivos a Firebase Storage ---
+                const storageRef = firebase.storage().ref();
+
+                // Función auxiliar para subir un solo archivo
+                const subirArchivo = async (file, path) => {
+                    if (!file) return null;
+                    const fileRef = storageRef.child(path);
+                    await fileRef.put(file);
+                    return fileRef.getDownloadURL();
+                };
 
                 try {
+                    // 1. Subir todas las fotos generales
+                    const promesasFotosGenerales = fotosGeneralesFiles.map((file, i) =>
+                        subirArchivo(file, `entradas/generales/${Date.now()}_${i}_${file.name}`)
+                    );
+                    const urlsFotosGenerales = await Promise.all(promesasFotosGenerales);
+
+                    // 2. Subir las fotos de albarán y preparar el paquete de datos
+                    confirmBtn.textContent = 'Registrando entrada...';
+                    const recepciones = [];
+                    for (let i = 0; i < lineasARecibir.length; i++) {
+                        const item = lineasARecibir[i];
+                        const estado = estadoLineas[i];
+
+                        const urlFotoAlbaran = await subirArchivo(
+                            estado.fotoAlbaranFile,
+                            `entradas/albaranes/${item.id}/${Date.now()}_${estado.fotoAlbaranFile?.name}`
+                        );
+
+                        // Comprobación de obligatoriedad
+                        if (estado.tipo === 'entrada' && !urlFotoAlbaran) {
+                            throw new Error(`Falta la foto del albarán para ${item.pedido.descripcion}`);
+                        }
+
+                        recepciones.push({
+                            id: item.id,
+                            tipo: estado.tipo,
+                            cantidadRecibida: estado.cantidadRecibida,
+                            nota: estado.nota,
+                            fotoAlbaranUrl: urlFotoAlbaran,
+                        });
+                    }
+                    
+                    // 3. Llamar a la Cloud Function con todos los datos
                     const registrarEntrada = functions.httpsCallable('registrarEntrada');
-                    await registrarEntrada({ recepciones, albaranProveedor, notas });
+                    await registrarEntrada({
+                        recepciones: recepciones,
+                        notasGenerales: document.getElementById('recepcion-notas-generales').value,
+                        fotosGeneralesUrls: urlsFotosGenerales,
+                    });
                     
                     alert('¡Recepción registrada con éxito!');
                     document.body.removeChild(modalOverlay);
@@ -347,10 +506,8 @@ const mostrarVistaPedidos = async () => {
                     confirmBtn.textContent = 'Confirmar Recepción';
                 }
             };
-
-            confirmBtn.onclick = handleConfirm;
-            cancelBtn.onclick = () => document.body.removeChild(modalOverlay);
         };
+
         
         // --- Carga inicial de datos ---
         pedidosTbody.innerHTML = `<tr><td colspan="9">Cargando datos...</td></tr>`;
@@ -801,7 +958,7 @@ const mostrarVistaNuevoPedido = () => {
             descripcion: form.descripcion.value,
             fechaEntrega: form.fechaEntrega.value,
             bultos: parseFloat(form.bultos.value) || 0,
-            cantidad: parseFloat(form.cantidad.value) || 0,
+            cantidad: parseFloat(form.cantidad.value).toFixed(2) || 0,
             udBulto: (productoSeleccionado ? productoSeleccionado.udBulto : 1),
             precio: parseFloat(form.precio.value) || 0,
             unidadVenta: form.unidadCompra.value,
@@ -975,7 +1132,7 @@ const mostrarVistaNuevoPedido = () => {
         const bultos = parseFloat(e.target.value) || 0;
         const producto = productosDeMarcaActual.find(p => p.codigo === document.getElementById('codigo-producto').value);
         const udBulto = producto ? producto.udBulto : 1;
-        document.getElementById('cantidad').value = bultos * udBulto;
+        document.getElementById('cantidad').value = (bultos * udBulto).toFixed(2);
     });
 
     document.getElementById('expediente').addEventListener('input', e => {

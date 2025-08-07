@@ -547,18 +547,48 @@ tbody tr:hover {
   background-color: #6c757d;
 }
 
-/* --- Estilos para el Modal de Recepción --- */
+/* --- Estilos para el Súper Modal (Versión 2.0) --- */
+#recepcion-items-list {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-right: 5px; /* Espacio para el scroll */
+}
+
+/* Scroll invisible por defecto, visible al pasar el ratón */
+#recepcion-items-list::-webkit-scrollbar {
+  width: 5px;
+}
+#recepcion-items-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+#recepcion-items-list::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 5px;
+}
+#recepcion-items-list:not(:hover)::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+/* Nuevo layout de tarjeta para cada item */
 .recepcion-modal-item {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 5px 15px;
-  padding: 10px 0;
+  grid-template-columns: 1fr 90px; /* Columna de info ancha, columna de cantidad fija */
+  grid-template-rows: auto auto auto;
+  gap: 8px 15px;
+  padding: 12px;
+  border: none;
   border-bottom: 1px solid var(--color-border);
+  grid-template-areas:
+    "info       cantidad"
+    "controls   cantidad"
+    "uploads    uploads";
 }
-.recepcion-modal-item:last-child {
-  border-bottom: none;
+.recepcion-modal-item:nth-of-type(even) {
+  background-color: #f8f9fa; /* Color alterno para las filas */
 }
+
 .recepcion-modal-item .info {
+  grid-area: info;
   text-align: left;
 }
 .recepcion-modal-item .info strong {
@@ -569,22 +599,24 @@ tbody tr:hover {
   font-size: 12px;
   color: #6c757d;
 }
-.recepcion-modal-item .actions {
+
+.recepcion-modal-item .cantidad-container {
+  grid-area: cantidad;
   text-align: right;
 }
-.recepcion-modal-item .actions label {
+.recepcion-modal-item .cantidad-container label {
   font-size: 12px;
   display: block;
 }
-.recepcion-modal-item .actions .main-input {
-  width: 80px;
+.recepcion-modal-item .cantidad-container .main-input {
+  width: 100%;
   text-align: center;
   font-size: 16px;
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
 }
-.recepcion-modal-item .actions .helper-input {
+.recepcion-modal-item .cantidad-container .helper-input {
   width: 60px;
   font-size: 12px;
   padding: 4px;
@@ -593,9 +625,120 @@ tbody tr:hover {
   text-align: center;
   margin-top: 4px;
 }
-.recepcion-modal-item .actions .helper-text {
+.recepcion-modal-item .cantidad-container .helper-text {
   font-size: 11px;
   color: #6c757d;
+}
+
+.recepcion-modal-item .item-controls {
+  grid-area: controls;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.recepcion-modal-item .item-controls .control-btn {
+  flex-grow: 1;
+  font-size: 12px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  background-color: #f8f9fa;
+  color: #6c757d;
+}
+.recepcion-modal-item .item-controls .control-btn.active {
+  background-color: var(--color-anthracite);
+  color: var(--color-white);
+  border-color: var(--color-anthracite);
+}
+
+.recepcion-modal-item .uploads-container {
+  grid-area: uploads;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #f8f9fa;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+/* --- Estilos para el Súper Modal --- */
+.item-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.item-controls .control-btn {
+  flex-grow: 1;
+  font-size: 12px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  background-color: #f8f9fa;
+  color: #6c757d;
+}
+
+.item-controls .control-btn.active {
+  background-color: var(--color-anthracite);
+  color: var(--color-white);
+  border-color: var(--color-anthracite);
+}
+
+.item-photo-upload,
+.general-photo-upload {
+  margin-top: 10px;
+}
+
+.item-photo-upload label,
+.general-photo-upload label {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.photo-previews {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+  flex-wrap: wrap;
+}
+
+.photo-previews img {
+  height: 50px;
+  width: 50px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+/* Ocultamos el input de archivo por defecto */
+input[type="file"] {
+  display: none;
+}
+
+.upload-btn {
+  display: inline-block;
+  padding: 5px 10px;
+  font-size: 12px;
+  background-color: var(--color-background);
+  border: 1px dashed var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.upload-btn:hover {
+  background-color: #e9ecef;
+}
+
+.item-notes {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 12px;
+  padding: 5px;
+}
+
+.photo-previews img {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.photo-previews img:hover {
+  opacity: 0.7;
 }
 
 /* --- MAGIA RESPONSIVE: VISTA MÓVIL DE ALTA DENSIDAD --- */
