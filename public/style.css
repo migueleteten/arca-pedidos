@@ -361,9 +361,19 @@ tbody tr:hover {
 .state-filters {
   display: flex;
   gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border);
-  margin: 10px;
+  padding-bottom: 10px; /* Espacio para que no se pegue a la tabla */
+
+  /* --- La Magia está Aquí --- */
+  overflow-x: auto; /* Permite el scroll horizontal */
+  white-space: nowrap; /* Evita que los botones se partan en dos líneas */
+
+  /* Ocultamos la barra de scroll visualmente, pero el deslizamiento funciona */
+  -ms-overflow-style: none; /* IE y Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.state-filters::-webkit-scrollbar {
+  display: none; /* Chrome, Safari y Opera */
 }
 
 .state-filters button {
@@ -494,21 +504,24 @@ tbody tr:hover {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 1002;
 }
 
 .modal-content {
   background-color: white;
-  padding: 30px;
+  padding: 15px;
   border-radius: 8px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-  width: 90%;
+  width: 95%;
   max-width: 400px;
   text-align: center;
+  max-height: 90vh; /* Límite: 90% de la altura de la pantalla */
+  overflow-y: auto; /* Añade scroll vertical si el contenido se desborda */
 }
 
 .modal-content h3 {
-  margin-top: 0;
+  margin-top: 15px;
+  margin-bottom: 20px;
 }
 
 .modal-content .input-group {
@@ -525,6 +538,7 @@ tbody tr:hover {
   text-align: center;
   border: 1px solid var(--color-border);
   border-radius: 5px;
+  max-width: 143px;
 }
 
 .modal-content .unit-label {
@@ -548,10 +562,15 @@ tbody tr:hover {
 }
 
 /* --- Estilos para el Súper Modal (Versión 2.0) --- */
-#recepcion-items-list {
-  max-height: 40vh;
+#recepcion-items-list,
+#envio-items-list {
+  margin-top: 15px;
+  max-height: 35vh;
   overflow-y: auto;
-  padding-right: 5px; /* Espacio para el scroll */
+  border: solid 0.1px grey;
+  border-radius: 9px;
+  margin-top: 25px;
+  margin-bottom: 25px;
 }
 
 /* Scroll invisible por defecto, visible al pasar el ratón */
@@ -572,24 +591,27 @@ tbody tr:hover {
 /* Nuevo layout de tarjeta para cada item */
 .recepcion-modal-item {
   display: grid;
-  grid-template-columns: 1fr 90px; /* Columna de info ancha, columna de cantidad fija */
-  grid-template-rows: auto auto auto;
+  grid-template-columns: 1fr auto;
   gap: 8px 15px;
   padding: 12px;
-  border: none;
   border-bottom: 1px solid var(--color-border);
   grid-template-areas:
-    "info       cantidad"
-    "controls   cantidad"
+    "info       actions"
+    "controls   actions"
     "uploads    uploads";
 }
+
 .recepcion-modal-item:nth-of-type(even) {
-  background-color: #f8f9fa; /* Color alterno para las filas */
+  background-color: #f8f9fa;
+}
+.recepcion-modal-item:last-child {
+  border-bottom: none;
 }
 
 .recepcion-modal-item .info {
   grid-area: info;
   text-align: left;
+  min-width: 0;
 }
 .recepcion-modal-item .info strong {
   font-size: 14px;
@@ -600,24 +622,27 @@ tbody tr:hover {
   color: #6c757d;
 }
 
-.recepcion-modal-item .cantidad-container {
-  grid-area: cantidad;
+.recepcion-modal-item .actions {
+  grid-area: actions;
   text-align: right;
+  width: 90px; /* Ancho fijo para el contenedor de cantidad */
 }
-.recepcion-modal-item .cantidad-container label {
+.recepcion-modal-item .actions label {
   font-size: 12px;
   display: block;
 }
-.recepcion-modal-item .cantidad-container .main-input {
-  width: 100%;
+
+.recepcion-modal-item .actions .main-input {
+  width: 100%; /* El 100% de su contenedor de 90px */
   text-align: center;
   font-size: 16px;
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
 }
-.recepcion-modal-item .cantidad-container .helper-input {
-  width: 60px;
+
+.recepcion-modal-item .actions .helper-input {
+  width: 60px; /* Más pequeño */
   font-size: 12px;
   padding: 4px;
   border: 1px solid #eee;
@@ -625,7 +650,8 @@ tbody tr:hover {
   text-align: center;
   margin-top: 4px;
 }
-.recepcion-modal-item .cantidad-container .helper-text {
+
+.recepcion-modal-item .actions .helper-text {
   font-size: 11px;
   color: #6c757d;
 }
@@ -741,15 +767,91 @@ input[type="file"] {
   opacity: 0.7;
 }
 
+/* --- Estilos para el Modal de Envío --- */
+.signature-pad-container {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  height: 150px;
+  position: relative;
+}
+.signature-pad-container canvas {
+  width: 100%;
+  height: 100%;
+}
+.signature-pad-container .clear-signature {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+
+.mobile-only {
+  display: none; /* Oculto por defecto en escritorio */
+}
+
+.spinner {
+  /* Dimensiones */
+  width: 16px;
+  height: 16px;
+
+  /* Estilo del círculo */
+  border: 2px solid rgba(255, 255, 255, 0.3); /* Borde gris claro */
+  border-top-color: #ffffff; /* Borde superior blanco para el efecto de giro */
+  border-radius: 50%;
+
+  /* Animación */
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* --- MAGIA RESPONSIVE: VISTA MÓVIL DE ALTA DENSIDAD --- */
 @media screen and (max-width: 760px) {
   body {
     padding-top: 60px;
   }
+
   .main-header {
-    height: 60px;
-    padding: 0 15px;
+    justify-content: space-between; /* Espaciamos los elementos */
+    gap: 15px;
   }
+
+  /* Mostramos el botón de hamburguesa */
+  .mobile-only {
+    display: inline-flex;
+  }
+
+  /* Ocultamos la navegación principal */
+  #main-nav {
+    display: none; /* La ocultamos por defecto */
+    position: absolute;
+    top: 60px; /* Justo debajo del header */
+    left: 0;
+    width: 100%;
+    background-color: var(--color-white);
+    box-shadow: var(--shadow);
+    flex-direction: column;
+    padding: 10px 0;
+    z-index: 999; /* Para que esté por encima del contenido */
+  }
+
+  /* Cuando el menú está abierto, lo mostramos */
+  #main-nav.nav-open {
+    display: flex;
+  }
+
+  #main-nav a {
+    padding: 15px 20px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--color-background);
+  }
+  #main-nav a:last-child {
+    border-bottom: none;
+  }
+
   .logo-container img {
     height: 35px;
   }

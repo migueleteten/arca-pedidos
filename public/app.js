@@ -15,6 +15,7 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const functions = app.functions('europe-west1');
 const provider = new firebase.auth.GoogleAuthProvider();
+const storage = firebase.storage();
 
 // --- Referencias a los elementos del DOM ---
 const authControls = document.getElementById('auth-controls');
@@ -22,6 +23,558 @@ const appContainer = document.getElementById('app');
 const navPedidos = document.getElementById('nav-pedidos');
 const navNuevo = document.getElementById('nav-nuevo');
 const navSalidaRapida = document.getElementById('nav-salida-rapida');
+
+// --- Variables de estado ---
+let todosLosPedidos = [];
+let lineasSeleccionadas = new Set();
+let filtroBusqueda = '';
+let soloMisPedidos = false; // Por defecto, los usuarios normales ven todos
+let mostrarPedidosDirectos = false;
+let sortKey = 'fechaCreacion';
+let sortDirection = 'desc';
+let filtrosDeEstadoActivos = [];
+
+const abrirModalDeRecepcion = (lineasARecibir) => {
+    // Detectamos si el dispositivo es móvil (Android / iOS)
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    // Inicializamos el estado de cada línea
+    const estadoLineas = lineasARecibir.map(item => ({
+        tipo: 'entrada',
+        cantidadRecibida: parseFloat(item.pedido.cantidad).toFixed(2),
+        nota: '',
+        fotoAlbaranFile: null,
+    }));
+    let fotosGeneralesFiles = [];
+
+    const modalOverlay = document.createElement('div');
+    modalOverlay.className = 'modal-overlay';
+    modalOverlay.innerHTML = `
+        <div class="modal-content">
+            <h3>Registrar Entrada de Mercancía</h3>
+            <div class="general-photo-upload" style="text-align: left; margin-bottom: 20px;">
+                <label for="fotos-generales-input">Fotos Generales del Evento (Palés, etc.)</label>
+                <br>
+                <label class="upload-btn">
+                    <span class="material-symbols-outlined">add_a_photo</span> Añadir Fotos
+                    <input 
+                        type="file" 
+                        id="fotos-generales-input" 
+                        accept="image/*" 
+                        multiple
+                        ${isMobile ? 'capture="environment"' : ''}
+                    >
+                </label>
+                <div id="general-photo-previews" class="photo-previews"></div>
+            </div>
+            
+            <div id="recepcion-items-list" style="max-height: 40vh; overflow-y: auto;"></div>
+
+            <div class="modal-buttons" style="margin-top: 20px;">
+                <button id="cancel-recepcion" class="btn-secondary">Cancelar</button>
+                <button id="confirm-recepcion">Confirmar Recepción</button>
+            </div>
+        </div>`;
+
+    // --- Función para renderizar los items ---
+    const renderizarItemsModal = () => {
+        const itemsList = modalOverlay.querySelector('#recepcion-items-list');
+        itemsList.innerHTML = lineasARecibir.map((item, index) => {
+            // 1. Calculamos lo que ya se ha recibido para esta línea
+            const totalYaRecibido = (item.movimientos || [])
+                .filter(m => m.tipo === 'entrada')
+                .reduce((sum, m) => sum + parseFloat(m.cantidadRecibida || 0), 0);
+            
+            // 2. Calculamos la cantidad pendiente de recibir
+            const cantidadPendiente = parseFloat(item.pedido.cantidad || 0) - totalYaRecibido;
+            const estadoActual = estadoLineas[index];
+            const udBulto = item.pedido.udBulto || 1;
+
+            const notaIcon = estadoActual.nota
+                ? `<button class="icon-button notas-btn" data-index="${index}" title="Ver/Editar Nota">
+                    <span class="material-symbols-outlined" style="color: var(--color-orange);">speaker_notes</span>
+                </button>`
+                : `<button class="icon-button notas-btn" data-index="${index}" title="Añadir Nota">
+                    <span class="material-symbols-outlined" style="color: #ccc;">speaker_notes_off</span>
+                </button>`;
+
+            const bultosHelper = udBulto !== 1 ? `
+                <div class="helper-text">
+                    Ayuda: <input type="number" class="helper-input" data-index="${index}"> bultos
+                    (${udBulto} ${item.pedido.unidadVenta}/bulto)
+                </div>` : '';
+
+            // input de foto de albarán con capture si es móvil
+            const fotoAlbaranHtml = estadoActual.tipo === 'entrada' ? `
+                <div class="item-photo-upload">
+                    <label class="upload-btn">
+                        <span class="material-symbols-outlined">add_photo_alternate</span>
+                        ${estadoActual.fotoAlbaranFile ? '1 FOTO' : 'Albarán*'}
+                        <input 
+                            type="file" 
+                            class="foto-albaran-input" 
+                            data-index="${index}" 
+                            accept="image/*"
+                            ${isMobile ? 'capture="environment"' : ''}
+                        >
+                    </label>
+                </div>` : '<div></div>';
+
+            return `
+            <div class="recepcion-modal-item" data-id="${item.id}">
+                <div class="info">
+                    <strong>${item.pedido.descripcion}</strong>
+                    <small>
+                        ${item.pedido.codigo} | Pedido: ${parseFloat(item.pedido.cantidad).toFixed(2)} ${item.pedido.unidadVenta} <br>
+                        <span style="color: green;">Ya Recibido: ${totalYaRecibido.toFixed(2)}</span><span style="color: red;"> | Pendiente: ${cantidadPendiente.toFixed(2)}</span>
+                    </small>
+                </div>
+                <div class="cantidad-container">
+                    <label for="cantidad-recibida-${index}">Cant. a Recibir</label>
+                    <input type="number" class="main-input" id="cantidad-recibida-${index}" data-index="${index}" value="${parseFloat(estadoActual.cantidadRecibida).toFixed(2)}" inputmode="decimal">
+                    ${bultosHelper}
+                </div>
+                <div class="item-controls">
+                    <button class="control-btn ${estadoActual.tipo === 'entrada' ? 'active' : ''}" data-index="${index}" data-tipo="entrada">🚚 Registrar Entrada</button>
+                    <button class="control-btn ${estadoActual.tipo === 'asignacion_stock' ? 'active' : ''}" data-index="${index}" data-tipo="asignacion_stock">📦 Asignar Stock</button>
+                    ${notaIcon}
+                </div>
+                <div class="uploads-container">${fotoAlbaranHtml}</div>
+            </div>`;
+        }).join('');
+    };
+
+    document.body.appendChild(modalOverlay);
+    renderizarItemsModal();
+
+    // --- Eventos del modal ---
+    const itemsList = modalOverlay.querySelector('#recepcion-items-list');
+    const previewsContainer = document.getElementById('general-photo-previews');
+    const confirmBtn = document.getElementById('confirm-recepcion');
+    const cancelBtn = document.getElementById('cancel-recepcion');
+
+    itemsList.addEventListener('click', e => {
+        const controlBtn = e.target.closest('.control-btn');
+        const notasBtn = e.target.closest('.notas-btn');
+
+        if (controlBtn) {
+            const index = parseInt(controlBtn.dataset.index);
+            estadoLineas[index].tipo = controlBtn.dataset.tipo;
+            renderizarItemsModal();
+        }
+
+        if (notasBtn) {
+            const index = parseInt(notasBtn.dataset.index);
+            const notaActual = estadoLineas[index].nota || "";
+            const nuevaNota = prompt("Nota / Incidencia de la línea:", notaActual);
+            if (nuevaNota !== null) {
+                estadoLineas[index].nota = nuevaNota;
+                renderizarItemsModal();
+            }
+        }
+    });
+
+    itemsList.addEventListener('input', e => {
+        const index = parseInt(e.target.dataset.index);
+        if (index === undefined || isNaN(index)) return;
+
+        // Si se usa el ayudante de bultos
+        if (e.target.classList.contains('helper-input')) {
+            const item = lineasARecibir[index];
+            const bultos = parseFloat(e.target.value) || 0;
+            const cantidadCalculada = bultos * item.pedido.udBulto;
+            document.getElementById(`cantidad-recibida-${index}`).value = cantidadCalculada.toFixed(2);
+            // Actualizamos también el estado
+            estadoLineas[index].cantidadRecibida = cantidadCalculada; 
+        }
+        
+        // --- LÍNEA CLAVE AÑADIDA ---
+        // Si se modifica directamente la cantidad recibida
+        if (e.target.classList.contains('main-input')) {
+            // Guardamos el cambio en nuestro estado de JavaScript
+            estadoLineas[index].cantidadRecibida = parseFloat(e.target.value) || 0;
+        }
+    });
+
+    itemsList.addEventListener('change', e => {
+        if (e.target.classList.contains('foto-albaran-input')) {
+            const index = parseInt(e.target.dataset.index);
+            if (e.target.files.length > 0) {
+                estadoLineas[index].fotoAlbaranFile = e.target.files[0];
+                renderizarItemsModal();
+            }
+        }
+    });
+
+    document.getElementById('fotos-generales-input').addEventListener('change', e => {
+        const nuevosArchivos = Array.from(e.target.files);
+        fotosGeneralesFiles.push(...nuevosArchivos);
+        renderizarFotosGenerales();
+    });
+
+    previewsContainer.addEventListener('click', e => {
+        if (e.target.tagName === 'IMG') {
+            if (confirm('¿Eliminar esta foto?')) {
+                const index = parseInt(e.target.dataset.index);
+                fotosGeneralesFiles.splice(index, 1);
+                renderizarFotosGenerales();
+            }
+        }
+    });
+
+    const renderizarFotosGenerales = () => {
+        const filePromises = fotosGeneralesFiles.map((file, index) => {
+            return new Promise(resolve => {
+                const reader = new FileReader();
+                reader.onload = event => {
+                    resolve(`<img src="${event.target.result}" alt="${file.name}" data-index="${index}">`);
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+        Promise.all(filePromises).then(imagesHtml => {
+            previewsContainer.innerHTML = imagesHtml.join('');
+        });
+    };
+
+    cancelBtn.onclick = () => document.body.removeChild(modalOverlay);
+    confirmBtn.onclick = async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Subiendo fotos...';
+
+        // --- Lógica de Subida de Archivos a Firebase Storage ---
+        const storageRef = firebase.storage().ref();
+
+        // Función auxiliar para subir un solo archivo
+        const subirArchivo = async (file, path) => {
+            if (!file) return null;
+            const fileRef = storageRef.child(path);
+            await fileRef.put(file);
+            return fileRef.getDownloadURL();
+        };
+
+        try {
+            // 1. Subir todas las fotos generales
+            const promesasFotosGenerales = fotosGeneralesFiles.map((file, i) =>
+                subirArchivo(file, `entradas/generales/${Date.now()}_${i}_${file.name}`)
+            );
+            const urlsFotosGenerales = await Promise.all(promesasFotosGenerales);
+
+            // 2. Subir las fotos de albarán y preparar el paquete de datos
+            confirmBtn.textContent = 'Registrando entrada...';
+            const recepciones = [];
+            for (let i = 0; i < lineasARecibir.length; i++) {
+                const item = lineasARecibir[i];
+                const estado = estadoLineas[i];
+
+                const urlFotoAlbaran = await subirArchivo(
+                    estado.fotoAlbaranFile,
+                    `entradas/albaranes/${item.id}/${Date.now()}_${estado.fotoAlbaranFile?.name}`
+                );
+
+                // Comprobación de obligatoriedad
+                if (estado.tipo === 'entrada' && !urlFotoAlbaran) {
+                    throw new Error(`Falta la foto del albarán para ${item.pedido.descripcion}`);
+                }
+
+                recepciones.push({
+                    id: item.id,
+                    tipo: estado.tipo,
+                    cantidadRecibida: parseFloat(estado.cantidadRecibida).toFixed(2),
+                    nota: estado.nota,
+                    fotoAlbaranUrl: urlFotoAlbaran,
+                });
+            }
+            
+            // 3. Llamar a la Cloud Function con todos los datos
+            const registrarEntrada = functions.httpsCallable('registrarEntrada');
+            await registrarEntrada({
+                recepciones: recepciones,
+                fotosGeneralesUrls: urlsFotosGenerales,
+            });
+            
+            alert('¡Recepción registrada con éxito!');
+            document.body.removeChild(modalOverlay);
+
+            lineasSeleccionadas.clear();
+            actualizarBarraAcciones();
+            mostrarVista('pedidos');
+
+        } catch (error) {
+            console.error("Error al confirmar recepción:", error);
+            alert(`Error: ${error.message}`);
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Confirmar Recepción';
+        }
+    };
+};
+
+const abrirModalDeEnvio = async (lineasAEnviar, opciones = {}) => {
+    // Detectamos si es móvil para el atributo 'capture'
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const esSalidaRapida = opciones.esSalidaRapida || false;
+    let fotosEnvioFiles = [];
+
+    // --- Cargamos los receptores existentes para el datalist ---
+    const receptoresSnapshot = await db.collection('receptores').get();
+    const receptoresCargados = receptoresSnapshot.docs.map(doc => doc.data());
+    const receptoresDatalistHtml = receptoresCargados.map(r => `<option value="${r.nombre}"></option>`).join('');
+
+    const modalOverlay = document.createElement('div');
+    modalOverlay.className = 'modal-overlay';
+    modalOverlay.innerHTML = `
+        <div class="modal-content">
+            <h3>Registrar Envío a Obra</h3>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="receptor-nombre">Nombre de quien recibe</label>
+                    <input type="text" id="receptor-nombre" list="receptores-list" autocomplete="off" required>
+                    <datalist id="receptores-list">${receptoresDatalistHtml}</datalist>
+                </div>
+                <div class="form-field">
+                    <label for="receptor-dni">DNI de quien recibe</label>
+                    <input type="text" id="receptor-dni" autocomplete="off" required>
+                </div>
+            </div>
+            
+            <div id="envio-items-list" style="margin-top: 15px; max-height: 35vh; overflow-y: auto;"></div>
+
+            <div class="general-photo-upload" style="text-align: left; margin-top: 15px;">
+                <label>Fotos de la Mercancía Saliente</label><br>
+                <label class="upload-btn">
+                    <span class="material-symbols-outlined">add_a_photo</span> Añadir Foto
+                    <input type="file" id="fotos-envio-input" accept="image/*" multiple capture="environment">
+                </label>
+                <div id="envio-photo-previews" class="photo-previews"></div>
+            </div>            
+
+            <div class="form-field" style="margin-top: 15px;">
+                <label>Firma del Receptor</label>
+                <div class="signature-pad-container">
+                    <canvas id="signature-canvas"></canvas>
+                    <button id="clear-signature" class="icon-button clear-signature" title="Borrar firma"><span class="material-symbols-outlined">delete_forever</span></button>
+                </div>
+            </div>
+
+            <div class="modal-buttons" style="margin-top: 20px;">
+                <button id="cancel-envio" class="btn-secondary">Cancelar</button>
+                <button id="confirm-envio">
+                    <span class="btn-text">Confirmar y Generar Albarán</span>
+                    <span class="spinner" style="display: none;"></span>
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modalOverlay);
+
+    // --- Lógica para renderizar los items a enviar ---
+    const itemsList = modalOverlay.querySelector('#envio-items-list');
+    const previewsContainer = document.getElementById('envio-photo-previews');
+    itemsList.innerHTML = lineasAEnviar.map((item, index) => {
+        // Obtenemos el pedido real, ya sea desde la salida rápida o la lista normal
+        const pedido = item.pedido || item;
+        
+        const totalRecibido = (item.movimientos || []).filter(m => m.tipo === 'entrada').reduce((sum, m) => sum + parseFloat(m.cantidadRecibida || 0), 0);
+        const totalEnviado = (item.movimientos || []).filter(m => m.tipo === 'salida').reduce((sum, m) => sum + parseFloat(m.cantidadEnviada || 0), 0);
+        const cantidadDisponible = esSalidaRapida ? pedido.cantidad : (totalRecibido - totalEnviado);
+
+        const udBulto = pedido.udBulto || 1;
+        const bultosHelper = udBulto !== 1 && !esSalidaRapida ? `
+            <div class="helper-text">
+                Ayuda: <input type="number" class="helper-input" data-index="${index}"> bultos
+                (${udBulto} ${pedido.unidadVenta}/bulto)
+            </div>` : '';
+
+        return `
+        <div class="recepcion-modal-item">
+            <div class="info">
+                <strong>${pedido.descripcion}</strong>
+                <small>
+                    Pedido: <span style="color: black;">${parseFloat(pedido.cantidad).toFixed(2)} ${pedido.unidadVenta}</span> | 
+                    Enviado: <span style="color: blue;">${totalEnviado.toFixed(2)}</span> | 
+                    <strong style="color: green;">Disponible: ${cantidadDisponible.toFixed(2)}</strong>
+                </small>
+            </div>
+            <div class="actions">
+                <label for="cantidad-enviar-${index}">Cant. a Enviar</label>
+                <input type="number" class="main-input cantidad-enviar-input" id="cantidad-enviar-${index}" value="${cantidadDisponible.toFixed(2)}" ${esSalidaRapida ? 'readonly' : ''}>
+                ${bultosHelper}
+            </div>
+        </div>`
+    }).join('');
+
+    // --- INICIALIZACIÓN Y LISTENERS (CON LÓGICA DE BULTOS AÑADIDA) ---
+    const canvas = document.getElementById('signature-canvas');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    const signaturePad = new SignaturePad(canvas);
+    document.getElementById('clear-signature').onclick = () => signaturePad.clear();
+
+    // --- Lógica de Autocompletar DNI ---
+    const nombreInput = document.getElementById('receptor-nombre');
+    nombreInput.addEventListener('input', () => {
+        const receptor = receptoresCargados.find(r => r.nombre === nombreInput.value);
+        document.getElementById('receptor-dni').value = receptor ? receptor.dni : '';
+    });
+
+    itemsList.querySelectorAll('.helper-input').forEach(input => {
+        input.addEventListener('input', e => {
+            const index = e.target.dataset.index;
+            const item = lineasAEnviar[index];
+            const pedido = item.pedido || item;
+            const bultos = parseFloat(e.target.value) || 0;
+            const cantidadCalculada = bultos * (pedido.udBulto || 1);
+            document.getElementById(`cantidad-enviar-${index}`).value = cantidadCalculada.toFixed(2);
+        });
+    });            
+
+    // --- Lógica de los Botones Principales ---
+    document.getElementById('cancel-envio').onclick = () => document.body.removeChild(modalOverlay);
+
+    const renderizarFotosEnvio = () => {
+        const filePromises = fotosEnvioFiles.map((file, index) => {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    resolve(`<img src="${event.target.result}" alt="${file.name}" data-index="${index}">`);
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+        Promise.all(filePromises).then(imagesHtml => {
+            previewsContainer.innerHTML = imagesHtml.join('');
+        });
+    };
+
+    // NUEVO: Listener para el input de las fotos de envío
+    document.getElementById('fotos-envio-input').addEventListener('change', e => {
+        const nuevosArchivos = Array.from(e.target.files);
+        fotosEnvioFiles.push(...nuevosArchivos);
+        renderizarFotosEnvio();
+    });
+
+    // NUEVO: Listener para eliminar fotos de la previsualización
+    previewsContainer.addEventListener('click', e => {
+        if (e.target.tagName === 'IMG') {
+            if (confirm('¿Eliminar esta foto?')) {
+                const index = parseInt(e.target.dataset.index);
+                fotosEnvioFiles.splice(index, 1);
+                renderizarFotosEnvio();
+            }
+        }
+    });
+
+// ==================================================================
+// === LÓGICA FINAL Y CONDICIONAL PARA CONFIRMAR EL ENVÍO ===
+// ==================================================================
+    document.getElementById('confirm-envio').onclick = async () => {
+        const confirmBtn = document.getElementById('confirm-envio');
+        const btnText = confirmBtn.querySelector('.btn-text');
+        const spinner = confirmBtn.querySelector('.spinner');
+
+        // --- 1. Validación (común para ambos casos) ---
+        const receptorNombre = document.getElementById('receptor-nombre').value.trim();
+        if (!receptorNombre) {
+            alert("Por favor, introduce el nombre de la persona que recibe.");
+            return;
+        }
+        if (signaturePad.isEmpty()) {
+            alert("La firma del receptor es obligatoria.");
+            return;
+        }
+
+        // --- 2. Estado de carga (común para ambos casos) ---
+        btnText.style.display = 'none';
+        spinner.style.display = 'inline-block';
+        confirmBtn.disabled = true;
+
+        try {
+            // --- 3. Subida de fotos y recopilación de datos (común para ambos casos) ---
+            let fotosMercanciaUrls = [];
+            if (fotosEnvioFiles.length > 0) {
+                const uploadPromises = fotosEnvioFiles.map(file => {
+                    const filePath = `fotos-salida/${Date.now()}-${file.name}`;
+                    const fileRef = storage.ref(filePath);
+                    return fileRef.put(file).then(snapshot => snapshot.ref.getDownloadURL());
+                });
+                fotosMercanciaUrls = await Promise.all(uploadPromises);
+            }
+            
+            const firmaDataUrl = signaturePad.toDataURL('image/png');
+            const receptorDni = document.getElementById('receptor-dni').value.trim();
+            
+            // =================================================
+            // === AQUÍ EMPIEZA LA BIFURCACIÓN DE LÓGICA ===
+            // =================================================
+
+            if (esSalidaRapida) {
+                // --------------- CASO: SALIDA RÁPIDA ---------------
+
+                // Para la salida rápida, enviamos los datos completos de cada línea, no solo el ID.
+                const lineasSalida = lineasAEnviar.map((linea, index) => {
+                    // Tomamos la cantidad del input, por si se ha modificado.
+                    const cantidadAEnviar = parseFloat(document.getElementById(`cantidad-enviar-${index}`).value);
+                    return {
+                        ...linea.pedido, // Copiamos todos los datos del producto
+                        cantidad: cantidadAEnviar, // Usamos la cantidad final del input
+                    };
+                }).filter(item => item.cantidad > 0);
+
+                if (lineasSalida.length === 0) {
+                    throw new Error("No has especificado ninguna cantidad para enviar.");
+                }
+
+                // Llamamos a la función específica para salidas rápidas
+                const registrarSalidaRapida = functions.httpsCallable('registrarSalidaRapida');
+                const resultado = await registrarSalidaRapida({
+                    receptorNombre,
+                    receptorDni,
+                    firmaDataUrl,
+                    lineasSalida, // El payload es diferente
+                    fotosMercanciaUrls
+                });
+                alert(`¡Salida rápida registrada con éxito! Albarán: ${resultado.data.albaranNumero}`);
+
+            } else {
+                // --------------- CASO: ENVÍO NORMAL ---------------
+
+                const salidas = lineasAEnviar.map((linea, index) => {
+                    const idDelPedido = linea.id;
+                    const cantidadAEnviar = parseFloat(document.getElementById(`cantidad-enviar-${index}`).value);
+                    if (!idDelPedido) return null; // La validación que ya teníamos
+                    return { id: idDelPedido, cantidadAEnviar };
+                }).filter(item => item && item.cantidadAEnviar > 0);
+
+                if (salidas.length === 0) {
+                    throw new Error("No has especificado ninguna cantidad para enviar.");
+                }
+
+                // Llamamos a la función de envío normal
+                const registrarSalida = functions.httpsCallable('registrarSalida');
+                const resultado = await registrarSalida({
+                    receptorNombre,
+                    receptorDni,
+                    firmaDataUrl,
+                    salidas, // El payload aquí solo lleva ID y cantidad
+                    fotosMercanciaUrls
+                });
+                alert(`¡Envío registrado con éxito! Albarán: ${resultado.data.albaranNumero}`);
+            }
+            
+            // --- 7. Éxito (común para ambos casos) ---
+            document.body.removeChild(modalOverlay);
+            mostrarVistaPedidos();
+
+        } catch (error) {
+            // --- 8. Manejo de errores (común para ambos casos) ---
+            console.error("Error al registrar el envío:", error);
+            alert(`Error: ${error.message}`);
+            btnText.style.display = 'inline-block';
+            spinner.style.display = 'none';
+            confirmBtn.disabled = false;
+        }
+    };
+};
 
 // --- Router de Vistas ---
 const mostrarVista = (vista) => {
@@ -47,18 +600,38 @@ const mostrarVista = (vista) => {
     }
 };
 
+const actualizarBarraAcciones = async () => {
+    const adminConfig = await db.collection('config').doc('usuariosAdmin').get();
+    const adminEmails = adminConfig.exists ? adminConfig.data().emails : [];
+    const actionBar = document.getElementById('bulk-action-bar');
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;    
+    const esAdmin = adminEmails.includes(currentUser.email);
+    if (lineasSeleccionadas.size === 0) {
+        actionBar.classList.remove('visible');
+        return;
+    }
+    
+    const seleccion = todosLosPedidos.filter(p => lineasSeleccionadas.has(p.id));
+    
+    // --- LÓGICA CORREGIDA PARA BOTONES EN LOTE ---
+    const puedeRecibir = esAdmin && seleccion.every(p => 
+        (p.pedido.estado === 'Pedido' || p.pedido.estado === 'Recibido Parcial') && p.pedido.necesitaAlmacen
+    );
+    const puedeEnviar = esAdmin && seleccion.every(p => 
+        (p.pedido.estado === 'Recibido Completo' || p.pedido.estado === 'Recibido Parcial' || p.pedido.estado === 'Enviado Parcial' || (p.pedido.estado === 'Pedido' && !p.pedido.necesitaAlmacen))
+    );
+
+    actionBar.innerHTML = `<p>${lineasSeleccionadas.size} línea(s) seleccionada(s)</p>
+        <button id="bulk-recibir" ${!puedeRecibir ? 'disabled' : ''}>Recibir en Lote</button>
+        <button id="bulk-enviar" ${!puedeEnviar ? 'disabled' : ''}>Enviar en Lote</button>`;
+    actionBar.classList.add('visible');
+};
+
 // --- Funciones para Renderizar cada Vista ---
 
 const mostrarVistaPedidos = async () => {
-    // --- Variables de estado ---
-    let todosLosPedidos = [];
-    let lineasSeleccionadas = new Set();
-    let filtroBusqueda = '';
-    let soloMisPedidos = false; // Por defecto, los usuarios normales ven todos
-    let mostrarPedidosDirectos = false;
-    let sortKey = 'fechaCreacion';
-    let sortDirection = 'desc';
-    let filtrosDeEstadoActivos = [];
+
 
     // --- Estructura HTML Principal ---
     const content = `
@@ -110,7 +683,7 @@ const mostrarVistaPedidos = async () => {
         }
         vistaOpcionesDiv.innerHTML = controlesHtml;
 
-        const estados = ['Pedido', 'Recibido en Almacén', 'Enviado a Obra', 'Recibido en Destino'];
+        const estados = ['Pedido', 'Recibido Parcial', 'Recibido Completo', 'Enviado Parcial', 'Enviado Completo', 'Recibido en Destino'];
         document.getElementById('state-filters-container').innerHTML = estados.map(estado => `<button data-estado="${estado}">${estado}</button>`).join('');
 
         // --- Referencias al DOM (después de crearlos) ---
@@ -139,29 +712,6 @@ const mostrarVistaPedidos = async () => {
                 .filter(p => filtrosDeEstadoActivos.length > 0 ? filtrosDeEstadoActivos.includes(p.pedido.estado) : true);
         };
 
-        const actualizarBarraAcciones = () => {
-            const actionBar = document.getElementById('bulk-action-bar');
-            if (lineasSeleccionadas.size === 0) {
-                actionBar.classList.remove('visible');
-                return;
-            }
-            
-            const seleccion = todosLosPedidos.filter(p => lineasSeleccionadas.has(p.id));
-            
-            // --- LÓGICA CORREGIDA PARA BOTONES EN LOTE ---
-            const puedeRecibir = esAdmin && seleccion.every(p => 
-                (p.pedido.estado === 'Pedido' || p.pedido.estado === 'Recibido Parcial') && p.pedido.necesitaAlmacen
-            );
-            const puedeEnviar = esAdmin && seleccion.every(p => 
-                (p.pedido.estado === 'Recibido en Almacén' || p.pedido.estado === 'Recibido Parcial' || (p.pedido.estado === 'Pedido' && !p.pedido.necesitaAlmacen))
-            );
-
-            actionBar.innerHTML = `<p>${lineasSeleccionadas.size} línea(s) seleccionada(s)</p>
-                <button id="bulk-recibir" ${!puedeRecibir ? 'disabled' : ''}>Recibir en Lote</button>
-                <button id="bulk-enviar" ${!puedeEnviar ? 'disabled' : ''}>Enviar en Lote</button>`;
-            actionBar.classList.add('visible');
-        };
-
         const renderizarTabla = () => {
             const pedidosParaMostrar = getPedidosFiltrados();
             pedidosParaMostrar.sort((a, b) => {
@@ -181,18 +731,18 @@ const mostrarVistaPedidos = async () => {
                 // --- NUEVA LÓGICA DE CÁLCULO DE CANTIDADES Y ESTADO ---
                 const totalRecibido = movimientos
                     .filter(m => m.tipo === 'entrada')
-                    .reduce((sum, m) => sum + m.cantidadRecibida, 0);
-                
+                    .reduce((sum, m) => sum + parseFloat(m.cantidadRecibida || 0), 0);
+
                 const totalEnviado = movimientos
                     .filter(m => m.tipo === 'salida')
-                    .reduce((sum, m) => sum + m.cantidadEnviada, 0);
+                    .reduce((sum, m) => sum + parseFloat(m.cantidadEnviada || 0), 0);
 
                 let estadoCalculado = pedido.estado; // Usamos el estado guardado como base
                 // Podríamos recalcularlo aquí si quisiéramos, pero de momento es suficiente
 
                 // --- NUEVO FORMATO PARA LA CELDA DE CANTIDAD ---
                 const cantidadHtml = `
-                    <div>Pedido: <strong>${pedido.cantidad} ${pedido.unidadVenta}</strong></div>
+                    <div>Pedido: <strong>${parseFloat(pedido.cantidad).toFixed(2)} ${pedido.unidadVenta}</strong></div>
                     <div style="color: blue;">Recibido: ${totalRecibido.toFixed(2)}</div>
                     <div style="color: green;">Enviado: ${totalEnviado.toFixed(2)}</div>
                 `;
@@ -222,12 +772,12 @@ const mostrarVistaPedidos = async () => {
                         accionesHtml += `<button class="icon-button" data-id="${id}" data-action="recibir" title="Recibir"><span class="material-symbols-outlined">warehouse</span></button>`;
                     }
                     // Botón Enviar: Visible en 'Recibido en Almacén', 'Recibido Parcial', o 'Pedido' (si es directo a obra)
-                    if (pedido.estado === 'Recibido Completo' || pedido.estado === 'Recibido Parcial' || (pedido.estado === 'Pedido' && !pedido.necesitaAlmacen)) {
+                    if (pedido.estado === 'Recibido Completo' || pedido.estado === 'Recibido Parcial' || pedido.estado === 'Enviado Parcial' || (pedido.estado === 'Pedido' && !pedido.necesitaAlmacen)) {
                         accionesHtml += `<button class="icon-button" data-id="${id}" data-action="enviar" title="Enviar"><span class="material-symbols-outlined">local_shipping</span></button>`;
                     }
                 }
                 if (pedido.usuarioEmail === currentUser.email) {
-                    if (pedido.estado === 'Enviado a Obra') accionesHtml += `<button class="icon-button" data-id="${id}" data-action="entregado" title="Recibido"><span class="material-symbols-outlined">task_alt</span></button>`;
+                    if (pedido.estado === 'Enviado Completo') accionesHtml += `<button class="icon-button" data-id="${id}" data-action="entregado" title="Recibido"><span class="material-symbols-outlined">task_alt</span></button>`;
                     else if (pedido.estado === 'Pedido' && !pedido.necesitaAlmacen) accionesHtml += `<button class="icon-button" data-id="${id}" data-action="entregado_directo" title="Recibido"><span class="material-symbols-outlined">task_alt</span></button>`;
                 }
                 const statusClass = `status-${pedido.estado.split(' ')[0].toLowerCase()}`;
@@ -252,261 +802,7 @@ const mostrarVistaPedidos = async () => {
             pedidosTbody.innerHTML = filasHtml;
         };
 
-        const abrirModalDeRecepcion = (lineasARecibir) => {
-            // Detectamos si el dispositivo es móvil (Android / iOS)
-            const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-            // Inicializamos el estado de cada línea
-            const estadoLineas = lineasARecibir.map(item => ({
-                tipo: 'entrada',
-                cantidadRecibida: item.pedido.cantidad,
-                nota: '',
-                fotoAlbaranFile: null,
-            }));
-            let fotosGeneralesFiles = [];
-
-            const modalOverlay = document.createElement('div');
-            modalOverlay.className = 'modal-overlay';
-            modalOverlay.innerHTML = `
-                <div class="modal-content">
-                    <h3>Registrar Entrada de Mercancía</h3>
-                    <div class="general-photo-upload" style="text-align: left; margin-bottom: 20px;">
-                        <label for="fotos-generales-input">Fotos Generales del Evento (Palés, etc.)</label>
-                        <br>
-                        <label class="upload-btn">
-                            <span class="material-symbols-outlined">add_a_photo</span> Añadir Fotos
-                            <input 
-                                type="file" 
-                                id="fotos-generales-input" 
-                                accept="image/*" 
-                                multiple
-                                ${isMobile ? 'capture="environment"' : ''}
-                            >
-                        </label>
-                        <div id="general-photo-previews" class="photo-previews"></div>
-                    </div>
-                    
-                    <div id="recepcion-items-list" style="max-height: 40vh; overflow-y: auto;"></div>
-
-                    <div class="modal-buttons" style="margin-top: 20px;">
-                        <button id="cancel-recepcion" class="btn-secondary">Cancelar</button>
-                        <button id="confirm-recepcion">Confirmar Recepción</button>
-                    </div>
-                </div>`;
-
-            // --- Función para renderizar los items ---
-            const renderizarItemsModal = () => {
-                const itemsList = modalOverlay.querySelector('#recepcion-items-list');
-                itemsList.innerHTML = lineasARecibir.map((item, index) => {
-                    const estadoActual = estadoLineas[index];
-                    const udBulto = item.pedido.udBulto || 1;
-
-                    const notaIcon = estadoActual.nota
-                        ? `<button class="icon-button notas-btn" data-index="${index}" title="Ver/Editar Nota">
-                            <span class="material-symbols-outlined" style="color: var(--color-orange);">speaker_notes</span>
-                        </button>`
-                        : `<button class="icon-button notas-btn" data-index="${index}" title="Añadir Nota">
-                            <span class="material-symbols-outlined" style="color: #ccc;">speaker_notes_off</span>
-                        </button>`;
-
-                    const bultosHelper = udBulto !== 1 ? `
-                        <div class="helper-text">
-                            Ayuda: <input type="number" class="helper-input" data-index="${index}"> bultos
-                            (${udBulto} ${item.pedido.unidadVenta}/bulto)
-                        </div>` : '';
-
-                    // input de foto de albarán con capture si es móvil
-                    const fotoAlbaranHtml = estadoActual.tipo === 'entrada' ? `
-                        <div class="item-photo-upload">
-                            <label class="upload-btn">
-                                <span class="material-symbols-outlined">add_photo_alternate</span>
-                                ${estadoActual.fotoAlbaranFile ? '1 FOTO' : 'Albarán*'}
-                                <input 
-                                    type="file" 
-                                    class="foto-albaran-input" 
-                                    data-index="${index}" 
-                                    accept="image/*"
-                                    ${isMobile ? 'capture="environment"' : ''}
-                                >
-                            </label>
-                        </div>` : '<div></div>';
-
-                    return `
-                    <div class="recepcion-modal-item" data-id="${item.id}">
-                        <div class="info">
-                            <strong>${item.pedido.descripcion}</strong>
-                            <small>${item.pedido.codigo} | Pedido: ${item.pedido.cantidad} ${item.pedido.unidadVenta}</small>
-                        </div>
-                        <div class="cantidad-container">
-                            <label for="cantidad-recibida-${index}">Cant. Recibida</label>
-                            <input type="number" class="main-input" id="cantidad-recibida-${index}" value="${estadoActual.cantidadRecibida}" inputmode="decimal">
-                            ${bultosHelper}
-                        </div>
-                        <div class="item-controls">
-                            <button class="control-btn ${estadoActual.tipo === 'entrada' ? 'active' : ''}" data-index="${index}" data-tipo="entrada">🚚 Registrar Entrada</button>
-                            <button class="control-btn ${estadoActual.tipo === 'asignacion_stock' ? 'active' : ''}" data-index="${index}" data-tipo="asignacion_stock">📦 Asignar Stock</button>
-                            ${notaIcon}
-                        </div>
-                        <div class="uploads-container">${fotoAlbaranHtml}</div>
-                    </div>`;
-                }).join('');
-            };
-
-            document.body.appendChild(modalOverlay);
-            renderizarItemsModal();
-
-            // --- Eventos del modal ---
-            const itemsList = modalOverlay.querySelector('#recepcion-items-list');
-            const previewsContainer = document.getElementById('general-photo-previews');
-            const confirmBtn = document.getElementById('confirm-recepcion');
-            const cancelBtn = document.getElementById('cancel-recepcion');
-
-            itemsList.addEventListener('click', e => {
-                const controlBtn = e.target.closest('.control-btn');
-                const notasBtn = e.target.closest('.notas-btn');
-
-                if (controlBtn) {
-                    const index = parseInt(controlBtn.dataset.index);
-                    estadoLineas[index].tipo = controlBtn.dataset.tipo;
-                    renderizarItemsModal();
-                }
-
-                if (notasBtn) {
-                    const index = parseInt(notasBtn.dataset.index);
-                    const notaActual = estadoLineas[index].nota || "";
-                    const nuevaNota = prompt("Nota / Incidencia de la línea:", notaActual);
-                    if (nuevaNota !== null) {
-                        estadoLineas[index].nota = nuevaNota;
-                        renderizarItemsModal();
-                    }
-                }
-            });
-
-            itemsList.addEventListener('input', e => {
-                const index = parseInt(e.target.dataset.index);
-                if (e.target.classList.contains('helper-input')) {
-                    const item = lineasARecibir[index];
-                    const bultos = parseFloat(e.target.value) || 0;
-                    document.getElementById(`cantidad-recibida-${index}`).value = (bultos * item.pedido.udBulto).toFixed(2);
-                }
-                if (e.target.classList.contains('main-input')) {
-                    estadoLineas[index].cantidadRecibida = parseFloat(e.target.value);
-                }
-            });
-
-            itemsList.addEventListener('change', e => {
-                if (e.target.classList.contains('foto-albaran-input')) {
-                    const index = parseInt(e.target.dataset.index);
-                    if (e.target.files.length > 0) {
-                        estadoLineas[index].fotoAlbaranFile = e.target.files[0];
-                        renderizarItemsModal();
-                    }
-                }
-            });
-
-            document.getElementById('fotos-generales-input').addEventListener('change', e => {
-                const nuevosArchivos = Array.from(e.target.files);
-                fotosGeneralesFiles.push(...nuevosArchivos);
-                renderizarFotosGenerales();
-            });
-
-            previewsContainer.addEventListener('click', e => {
-                if (e.target.tagName === 'IMG') {
-                    if (confirm('¿Eliminar esta foto?')) {
-                        const index = parseInt(e.target.dataset.index);
-                        fotosGeneralesFiles.splice(index, 1);
-                        renderizarFotosGenerales();
-                    }
-                }
-            });
-
-            const renderizarFotosGenerales = () => {
-                const filePromises = fotosGeneralesFiles.map((file, index) => {
-                    return new Promise(resolve => {
-                        const reader = new FileReader();
-                        reader.onload = event => {
-                            resolve(`<img src="${event.target.result}" alt="${file.name}" data-index="${index}">`);
-                        };
-                        reader.readAsDataURL(file);
-                    });
-                });
-                Promise.all(filePromises).then(imagesHtml => {
-                    previewsContainer.innerHTML = imagesHtml.join('');
-                });
-            };
-
-            cancelBtn.onclick = () => document.body.removeChild(modalOverlay);
-            confirmBtn.onclick = async () => {
-                confirmBtn.disabled = true;
-                confirmBtn.textContent = 'Subiendo fotos...';
-
-                // --- Lógica de Subida de Archivos a Firebase Storage ---
-                const storageRef = firebase.storage().ref();
-
-                // Función auxiliar para subir un solo archivo
-                const subirArchivo = async (file, path) => {
-                    if (!file) return null;
-                    const fileRef = storageRef.child(path);
-                    await fileRef.put(file);
-                    return fileRef.getDownloadURL();
-                };
-
-                try {
-                    // 1. Subir todas las fotos generales
-                    const promesasFotosGenerales = fotosGeneralesFiles.map((file, i) =>
-                        subirArchivo(file, `entradas/generales/${Date.now()}_${i}_${file.name}`)
-                    );
-                    const urlsFotosGenerales = await Promise.all(promesasFotosGenerales);
-
-                    // 2. Subir las fotos de albarán y preparar el paquete de datos
-                    confirmBtn.textContent = 'Registrando entrada...';
-                    const recepciones = [];
-                    for (let i = 0; i < lineasARecibir.length; i++) {
-                        const item = lineasARecibir[i];
-                        const estado = estadoLineas[i];
-
-                        const urlFotoAlbaran = await subirArchivo(
-                            estado.fotoAlbaranFile,
-                            `entradas/albaranes/${item.id}/${Date.now()}_${estado.fotoAlbaranFile?.name}`
-                        );
-
-                        // Comprobación de obligatoriedad
-                        if (estado.tipo === 'entrada' && !urlFotoAlbaran) {
-                            throw new Error(`Falta la foto del albarán para ${item.pedido.descripcion}`);
-                        }
-
-                        recepciones.push({
-                            id: item.id,
-                            tipo: estado.tipo,
-                            cantidadRecibida: estado.cantidadRecibida,
-                            nota: estado.nota,
-                            fotoAlbaranUrl: urlFotoAlbaran,
-                        });
-                    }
-                    
-                    // 3. Llamar a la Cloud Function con todos los datos
-                    const registrarEntrada = functions.httpsCallable('registrarEntrada');
-                    await registrarEntrada({
-                        recepciones: recepciones,
-                        notasGenerales: document.getElementById('recepcion-notas-generales').value,
-                        fotosGeneralesUrls: urlsFotosGenerales,
-                    });
-                    
-                    alert('¡Recepción registrada con éxito!');
-                    document.body.removeChild(modalOverlay);
-
-                    lineasSeleccionadas.clear();
-                    actualizarBarraAcciones();
-                    mostrarVista('pedidos');
-
-                } catch (error) {
-                    console.error("Error al confirmar recepción:", error);
-                    alert(`Error: ${error.message}`);
-                    confirmBtn.disabled = false;
-                    confirmBtn.textContent = 'Confirmar Recepción';
-                }
-            };
-        };
+        
 
         
         // --- Carga inicial de datos ---
@@ -576,25 +872,31 @@ const mostrarVistaPedidos = async () => {
         // Listener para Acciones Individuales y Selección de Filas en la tabla
         pedidosTbody.addEventListener('click', async (e) => {
             const button = e.target.closest('button.icon-button');
-            const tr = e.target.closest('tr');
             const commentCell = e.target.closest('.comment-cell');
+            const tr = e.target.closest('tr');
 
             // --- Lógica para botones de acción individuales ---
             if (button) {
-                e.stopPropagation(); // Prevenimos que se seleccione la fila
+                e.stopPropagation(); // Evita que se seleccione la fila
                 const pedidoId = button.dataset.id;
                 const accion = button.dataset.action;
 
-                // Si la acción es 'recibir', abrimos el modal
+                // Si es 'recibir', abre el modal de recepción
                 if (accion === 'recibir') {
                     const lineaARecibir = todosLosPedidos.find(p => p.id === pedidoId);
                     abrirModalDeRecepcion([lineaARecibir]);
-                    return; // Terminamos aquí
+                    return;
+                }
+                
+                // Si es 'enviar', abre el modal de envío
+                if (accion === 'enviar') {
+                    const lineaAEnviar = todosLosPedidos.find(p => p.id === pedidoId);
+                    abrirModalDeEnvio([lineaAEnviar]);
+                    return;
                 }
 
-                // Para el resto de acciones ('enviar', 'entregado'), mantenemos la lógica anterior
+                // Para el resto de acciones ('entregado'), actualiza el estado
                 const estados = {
-                    enviar: 'Enviado a Obra',
                     entregado: 'Recibido en Destino',
                     entregado_directo: 'Recibido en Destino'
                 };
@@ -605,7 +907,8 @@ const mostrarVistaPedidos = async () => {
                 button.disabled = true;
                 try {
                     const actualizarEstado = functions.httpsCallable('actualizarEstadoPedido');
-                    await actualizarEstado({ pedidoId: pedidoId, nuevoEstado: nuevoEstado });
+                    await actualizarEstado({ pedidoId, nuevoEstado });
+
                     const indice = todosLosPedidos.findIndex(p => p.id === pedidoId);
                     if (indice !== -1) {
                         todosLosPedidos[indice].pedido.estado = nuevoEstado;
@@ -618,8 +921,21 @@ const mostrarVistaPedidos = async () => {
                 }
                 return;
             }
+
+            // --- Lógica para celdas de comentario ---
+            if (commentCell) {
+                const tr = commentCell.closest('tr');
+                const pedidoId = tr.dataset.id;
+                const indice = todosLosPedidos.findIndex(p => p.id === pedidoId);
+                if (indice === -1) return;
+                const comentario = todosLosPedidos[indice].pedido.observaciones;
+                if (comentario) {
+                    alert(`Observaciones:\n\n${comentario}`);
+                }
+                return;
+            }
             
-            // Si se hace clic en una fila (para seleccionar)
+            // --- Lógica para seleccionar la fila/tarjeta ---
             if (tr && tr.dataset.id && esAdmin) {
                 const id = tr.dataset.id;
                 const checkbox = tr.querySelector('.linea-checkbox');
@@ -632,70 +948,23 @@ const mostrarVistaPedidos = async () => {
                 tr.classList.toggle('selected');
                 actualizarBarraAcciones();
             }
-
-            if (commentCell) {
-                const tr = commentCell.closest('tr');
-                const pedidoId = tr.dataset.id;
-                const indice = todosLosPedidos.findIndex(p => p.id === pedidoId);
-                if (indice === -1) return;
-
-                const comentario = todosLosPedidos[indice].pedido.observaciones;
-                if (comentario) {
-                    alert(`Observaciones:\n\n${comentario}`); // Solo muestra el comentario, no pide editar
-                }
-                return; // Detenemos la ejecución para no seleccionar la fila
-            }
-            
-            if (button && button.dataset.action === 'recibir') {
-                e.stopPropagation();
-                const pedidoId = button.dataset.id;
-                const lineaARecibir = todosLosPedidos.find(p => p.id === pedidoId);
-                abrirModalDeRecepcion([lineaARecibir]); // Pasamos la línea dentro de un array
-                return;
-            }
         });
         
         // Listener para la barra de acciones en lote
-        document.getElementById('bulk-action-bar').addEventListener('click', async (e) => {
+        document.getElementById('bulk-action-bar').addEventListener('click', (e) => {
             const button = e.target.closest('button');
             if (!button || button.disabled) return;
-            
-            // --- Lógica separada para cada botón ---
 
+            // Si se pulsa "Recibir en Lote"
             if (button.id === 'bulk-recibir') {
                 const lineasARecibir = todosLosPedidos.filter(p => lineasSeleccionadas.has(p.id));
                 abrirModalDeRecepcion(lineasARecibir);
+            }
             
-            } else if (button.id === 'bulk-enviar') {
-                const nuevoEstado = 'Enviado a Obra';
-                if (!confirm(`¿Confirmas que quieres cambiar el estado a "${nuevoEstado}" para ${lineasSeleccionadas.size} líneas?`)) return;
-
-                button.disabled = true;
-                button.textContent = 'Procesando...';
-                
-                const actualizarEstado = functions.httpsCallable('actualizarEstadoPedido');
-                const promesas = [];
-                lineasSeleccionadas.forEach(pedidoId => {
-                    promesas.push(actualizarEstado({ pedidoId, nuevoEstado }));
-                });
-
-                try {
-                    await Promise.all(promesas);
-                    todosLosPedidos.forEach(p => {
-                        if (lineasSeleccionadas.has(p.id)) {
-                            p.pedido.estado = nuevoEstado;
-                        }
-                    });
-                    lineasSeleccionadas.clear();
-                    actualizarBarraAcciones();
-                    renderizarTabla();
-                } catch (error) {
-                    console.error("Error en acción por lote 'enviar':", error);
-                    alert(`Error: ${error.message}`);
-                    // Reactivamos el botón si hay un error
-                    button.disabled = false;
-                    button.textContent = 'Enviar en Lote';
-                }
+            // Si se pulsa "Enviar en Lote"
+            if (button.id === 'bulk-enviar') {
+                const lineasAEnviar = todosLosPedidos.filter(p => lineasSeleccionadas.has(p.id));
+                abrirModalDeEnvio(lineasAEnviar);
             }
         });
         
@@ -879,7 +1148,7 @@ const mostrarVistaNuevoPedido = () => {
             <tr>
                 <td data-label="Producto">${linea.descripcion} (${linea.codigo})</td>
                 <td data-label="Proveedor">${linea.proveedor}</td>
-                <td data-label="Cantidad">${linea.cantidad} ${linea.unidadVenta}</td>
+                <td data-label="Cantidad">${parseFloat(linea.cantidad).toFixed(2)} ${linea.unidadVenta}</td>
                 <td data-label="Almacén?">${linea.necesitaAlmacen ? 'Sí' : 'No'}</td>
                 <td data-label="Obs." class="comment-cell" data-index="${index}">${obsIcon}</td>
                 <td data-label="Acciones">
@@ -1354,32 +1623,11 @@ const mostrarVistaSalidaRapida = async () => {
         });
 
         // Listener para el botón de finalizar
-        finalizarBtn.addEventListener('click', async () => {
-            if (salidaActual.length === 0 || !expedienteInput.value) {
-                alert('Debes tener al menos un producto en la lista y un expediente seleccionado.');
-                return;
-            }
-
-            if (!confirm(`¿Estás seguro de que quieres registrar la salida de ${salidaActual.length} producto(s)?`)) {
-                return;
-            }
-
-            finalizarBtn.disabled = true;
-            finalizarBtn.textContent = 'Registrando...';
-
-            try {
-                const registrarSalida = functions.httpsCallable('registrarSalidaRapida');
-                await registrarSalida({ lineasSalida: salidaActual });
-
-                alert('¡Éxito! La salida ha sido registrada correctamente.');
-                mostrarVista('pedidos'); // Navegamos a la lista de pedidos
-
-            } catch (error) {
-                console.error("Error al finalizar la salida rápida:", error);
-                alert(`Error: ${error.message}`);
-                finalizarBtn.disabled = false;
-                finalizarBtn.textContent = 'Registrar Salida';
-            }
+        finalizarBtn.addEventListener('click', () => {
+            if (salidaActual.length === 0 || !expedienteInput.value) return;
+            // Mapeamos el formato para que sea compatible con el modal
+            const lineasParaModal = salidaActual.map(item => ({ pedido: item, movimientos: [] }));
+            abrirModalDeEnvio(lineasParaModal, { esSalidaRapida: true });
         });
 
     } catch (error) {
@@ -1414,7 +1662,6 @@ auth.onAuthStateChanged(async (user) => {
         });
 
         // Usuario está logueado
-        document.getElementById('main-nav').style.display = 'flex'; // Mostramos la nav
         authControls.innerHTML = `
             <div class="user-info">
                 <strong>${user.displayName}</strong>
@@ -1441,3 +1688,18 @@ auth.onAuthStateChanged(async (user) => {
 navPedidos.onclick = (e) => { e.preventDefault(); mostrarVista('pedidos'); };
 navNuevo.onclick = (e) => { e.preventDefault(); mostrarVista('nuevo'); };
 navSalidaRapida.onclick = (e) => { e.preventDefault(); mostrarVista('salida-rapida'); };
+
+// --- Lógica del Menú Móvil ---
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+const mainNav = document.getElementById('main-nav');
+
+mobileMenuBtn.addEventListener('click', () => {
+    mainNav.classList.toggle('nav-open');
+});
+
+// Opcional: Cierra el menú al hacer clic en un enlace (mejor experiencia)
+mainNav.addEventListener('click', (e) => {
+    if (e.target.tagName === 'A') {
+        mainNav.classList.remove('nav-open');
+    }
+});
